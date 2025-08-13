@@ -15,6 +15,12 @@ const spec = new mongoose.Schema({
 
 const schema = new mongoose.Schema({});
 schema.add(devisBase);
-schema.add({ spec });
+schema.add({ 
+  spec,
+  demandePdf: {
+    data: Buffer,
+    contentType: String
+  }
+});
 
-export default mongoose.model("DevisFilDresse", schema);
+export default mongoose.model("DemandeDevisFilDresse", schema);

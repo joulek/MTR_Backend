@@ -1,18 +1,19 @@
-import express from "express";
+// routes/devisTraction.routes.js
+import { Router } from "express";
 import multer from "multer";
-import { createDevisCompression, getAllDevisCompression } from "../controllers/devisCompression.controller.js";
-
-const router = express.Router();
-
-// Config Multer pour upload fichiers
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, "uploads/"),
-  filename: (req, file, cb) => cb(null, Date.now() + "-" + file.originalname)
-});
+import auth, { only } from "../middleware/auth.js";
+import { createDevisCompression } from "../controllers/devisCompression.controller.js";
+const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
-// Routes
-router.post("/", upload.array("docs"), createDevisCompression);
-router.get("/", getAllDevisCompression);
+const router = Router();
+
+router.post(
+  "/", // <-- route relative
+  auth,
+  only("client"),
+  upload.array("docs"), // <-- parse tous les champs et fichiers
+  createDevisCompression
+);
 
 export default router;

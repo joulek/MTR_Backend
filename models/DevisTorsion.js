@@ -4,7 +4,7 @@ import { devisBase } from "./_devisBase.js";
 
 const spec = new mongoose.Schema({
   d:  { type: Number, required: true },
-  De: { type: Number, required: true },        // extérieur (De)
+  De: { type: Number, required: true },        // diamètre extérieur (De)
   Lc: { type: Number, required: true },        // longueur du corps
   angle: { type: Number, required: true },     // angle entre les branches (°)
   nbSpires: { type: Number, required: true },
@@ -13,12 +13,26 @@ const spec = new mongoose.Schema({
   L2: { type: Number, required: true },        // longueur branche 2
 
   quantite: { type: Number, required: true },
-  matiere: { type: String, enum: ["Fil ressort noir (SM, SH)","Fil ressort galvanisé","Fil ressort inox"], required: true },
-  enroulement: { type: String, enum: ["Enroulement gauche","Enroulement droite"], required: true },
+  matiere: { 
+    type: String, 
+    enum: ["Fil ressort noir (SM, SH)", "Fil ressort galvanisé", "Fil ressort inox"], 
+    required: true 
+  },
+  enroulement: { 
+    type: String, 
+    enum: ["Enroulement gauche", "Enroulement droite"], 
+    required: true 
+  },
 }, { _id:false });
 
 const schema = new mongoose.Schema({});
 schema.add(devisBase);
-schema.add({ spec });
+schema.add({ 
+  spec,
+  demandePdf: {
+    data: Buffer,
+    contentType: String
+  }
+});
 
-export default mongoose.model("DevisTorsion", schema);
+export default mongoose.model("DemandeDevisTorsion", schema);

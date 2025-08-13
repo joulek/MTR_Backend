@@ -2,7 +2,8 @@
 import { Router } from "express";
 import auth, { only } from "../middleware/auth.js";
 import DevisTraction from "../models/DevisTraction.js";
-
+import DevisTorsion from "../models/DevisTorsion.js"; // ✅ ajouté
+import DevisCompression from "../models/DevisCompression.js"; // ✅ ajouté
 const router = Router();
 
 /** Convertir les données Mongo en Buffer utilisable */
@@ -20,8 +21,9 @@ function toBuffer(maybeBinary) {
 }
 
 /**
- * 📌 GET /api/admin/devis/traction
- * Liste des demandes (sans renvoyer les binaires)
+ * -------------------------
+ * 📌 TRACTION
+ * -------------------------
  */
 router.get("/devis/traction", auth, only("admin"), async (req, res) => {
   try {
@@ -57,21 +59,13 @@ router.get("/devis/traction", auth, only("admin"), async (req, res) => {
   }
 });
 
-/**
- * 📌 GET /api/admin/devis/traction/:id/pdf
- * Retourne le PDF principal
- */
 router.get("/devis/traction/:id/pdf", auth, only("admin"), async (req, res) => {
   try {
     const devis = await DevisTraction.findById(req.params.id).lean();
-    if (!devis) {
-      return res.status(404).json({ success: false, message: "Devis introuvable" });
-    }
+    if (!devis) return res.status(404).json({ success: false, message: "Devis introuvable" });
 
     const buf = toBuffer(devis?.demandePdf?.data);
-    if (!buf?.length) {
-      return res.status(404).json({ success: false, message: "PDF non trouvé" });
-    }
+    if (!buf?.length) return res.status(404).json({ success: false, message: "PDF non trouvé" });
 
     res.setHeader("Content-Type", devis.demandePdf.contentType || "application/pdf");
     res.setHeader("Content-Length", buf.length);
@@ -86,16 +80,11 @@ router.get("/devis/traction/:id/pdf", auth, only("admin"), async (req, res) => {
   }
 });
 
-/**
- * 📌 GET /api/admin/devis/traction/:id/document/:index
- * Retourne un document associé (fichier uploadé)
- */
-// alias /doc/:index -> même logique que /document/:index
 router.get("/devis/traction/:id/document/:index", auth, only("admin"), async (req, res) => {
   const devis = await DevisTraction.findById(req.params.id).lean();
-  if (!devis || !Array.isArray(devis.documents)) {
+  if (!devis || !Array.isArray(devis.documents))
     return res.status(404).json({ success: false, message: "Document non trouvé" });
-  }
+
   const doc = devis.documents[parseInt(req.params.index, 10)];
   if (!doc) return res.status(404).json({ success: false, message: "Document inexistant" });
 
@@ -108,5 +97,310 @@ router.get("/devis/traction/:id/document/:index", auth, only("admin"), async (re
   res.end(buf);
 });
 
+/**
+ * -------------------------
+ * 📌 TORSION
+ * -------------------------
+ */
+router.get("/devis/torsion", auth, only("admin"), async (req, res) => {
+  try {
+    const items = await DevisTorsion.find({})
+      .populate("user", "prenom nom email numTel")
+      .sort("-createdAt")
+      .lean();
+
+    const mapped = items.map((it) => ({
+      _id: it._id,
+      numero: it.numero,
+      type: it.type,
+      createdAt: it.createdAt,
+      updatedAt: it.updatedAt,
+      user: it.user,
+      spec: it.spec,
+      exigences: it.exigences,
+      remarques: it.remarques,
+      documents: (it.documents || []).map((d, idx) => ({
+        index: idx,
+        filename: d.filename,
+        mimetype: d.mimetype,
+        size: toBuffer(d?.data)?.length || 0,
+        hasData: !!(toBuffer(d?.data)?.length),
+      })),
+      hasDemandePdf: !!(toBuffer(it?.demandePdf?.data)?.length),
+    }));
+
+    res.json({ success: true, items: mapped });
+  } catch (e) {
+    console.error("GET /api/admin/devis/torsion error:", e);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+router.get("/devis/torsion/:id/pdf", auth, only("admin"), async (req, res) => {
+  try {
+    const devis = await DevisTorsion.findById(req.params.id).lean();
+    if (!devis) return res.status(404).json({ success: false, message: "Devis introuvable" });
+
+    const buf = toBuffer(devis?.demandePdf?.data);
+    if (!buf?.length) return res.status(404).json({ success: false, message: "PDF non trouvé" });
+
+    res.setHeader("Content-Type", devis.demandePdf.contentType || "application/pdf");
+    res.setHeader("Content-Length", buf.length);
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="devis-torsion-${req.params.id}.pdf"`
+    );
+    res.end(buf);
+  } catch (e) {
+    console.error("GET /api/admin/devis/torsion/:id/pdf error:", e);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+router.get("/devis/torsion/:id/document/:index", auth, only("admin"), async (req, res) => {
+  const devis = await DevisTorsion.findById(req.params.id).lean();
+  if (!devis || !Array.isArray(devis.documents))
+    return res.status(404).json({ success: false, message: "Document non trouvé" });
+
+  const doc = devis.documents[parseInt(req.params.index, 10)];
+  if (!doc) return res.status(404).json({ success: false, message: "Document inexistant" });
+
+  const buf = toBuffer(doc.data);
+  if (!buf?.length) return res.status(404).json({ success: false, message: "Contenu du document vide" });
+
+  res.setHeader("Content-Type", doc.mimetype || "application/octet-stream");
+  res.setHeader("Content-Length", buf.length);
+  res.setHeader("Content-Disposition", `inline; filename="${doc.filename || "document"}"`);
+  res.end(buf);
+});
+
+/* ------------------------------------------------------------------
+ * 📌 COMPRESSION  ✅ NOUVEAU
+ * ------------------------------------------------------------------ */
+router.get("/devis/compression", auth, only("admin"), async (req, res) => {
+  try {
+    const items = await DevisCompression.find({})
+      .populate("user", "prenom nom email numTel")
+      .sort("-createdAt")
+      .lean();
+
+    const mapped = items.map((it) => ({
+      _id: it._id,
+      numero: it.numero,
+      type: it.type,
+      createdAt: it.createdAt,
+      updatedAt: it.updatedAt,
+      user: it.user,
+      spec: it.spec,
+      exigences: it.exigences,
+      remarques: it.remarques,
+      documents: (it.documents || []).map((d, idx) => ({
+        index: idx,
+        filename: d.filename,
+        mimetype: d.mimetype,
+        size: toBuffer(d?.data)?.length || 0,
+        hasData: !!(toBuffer(d?.data)?.length),
+      })),
+      hasDemandePdf: !!(toBuffer(it?.demandePdf?.data)?.length),
+    }));
+
+    res.json({ success: true, items: mapped });
+  } catch (e) {
+    console.error("GET /api/admin/devis/compression error:", e);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+router.get("/devis/compression/:id/pdf", auth, only("admin"), async (req, res) => {
+  try {
+    const devis = await DevisCompression.findById(req.params.id).lean();
+    if (!devis) return res.status(404).json({ success: false, message: "Devis introuvable" });
+
+    const buf = toBuffer(devis?.demandePdf?.data);
+    if (!buf?.length) return res.status(404).json({ success: false, message: "PDF non trouvé" });
+
+    res.setHeader("Content-Type", devis.demandePdf.contentType || "application/pdf");
+    res.setHeader("Content-Length", buf.length);
+    res.setHeader("Content-Disposition", `inline; filename="devis-compression-${req.params.id}.pdf"`);
+    res.end(buf);
+  } catch (e) {
+    console.error("GET /api/admin/devis/compression/:id/pdf error:", e);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+router.get("/devis/compression/:id/document/:index", auth, only("admin"), async (req, res) => {
+  const devis = await DevisCompression.findById(req.params.id).lean();
+  if (!devis || !Array.isArray(devis.documents))
+    return res.status(404).json({ success: false, message: "Document non trouvé" });
+
+  const doc = devis.documents[parseInt(req.params.index, 10)];
+  if (!doc) return res.status(404).json({ success: false, message: "Document inexistant" });
+
+  const buf = toBuffer(doc.data);
+  if (!buf?.length) return res.status(404).json({ success: false, message: "Contenu du document vide" });
+
+  res.setHeader("Content-Type", doc.mimetype || "application/octet-stream");
+  res.setHeader("Content-Length", buf.length);
+  res.setHeader("Content-Disposition", `inline; filename="${doc.filename || "document"}"`);
+  res.end(buf);
+});
+
+// routes/admin.devis.routes.js (extrait – ajoute ce bloc GRILLE)
+import DevisGrille from "../models/DevisGrille.js";
+
+// util binaire déjà défini: toBuffer(...)
+
+/** -------------------------
+ * 📌 GRILLE
+ * ------------------------- */
+router.get("/devis/grille", auth, only("admin"), async (req, res) => {
+  try {
+    const items = await DevisGrille.find({})
+      .populate("user", "prenom nom email numTel")
+      .sort("-createdAt")
+      .lean();
+
+    const mapped = items.map((it) => ({
+      _id: it._id,
+      numero: it.numero,
+      type: it.type,
+      createdAt: it.createdAt,
+      updatedAt: it.updatedAt,
+      user: it.user,
+      spec: it.spec,
+      exigences: it.exigences,
+      remarques: it.remarques,
+      documents: (it.documents || []).map((d, idx) => ({
+        index: idx,
+        filename: d.filename,
+        mimetype: d.mimetype,
+        size: toBuffer(d?.data)?.length || 0,
+        hasData: !!(toBuffer(d?.data)?.length),
+      })),
+      hasDemandePdf: !!(toBuffer(it?.demandePdf?.data)?.length),
+    }));
+
+    res.json({ success: true, items: mapped });
+  } catch (e) {
+    console.error("GET /api/admin/devis/grille error:", e);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+router.get("/devis/grille/:id/pdf", auth, only("admin"), async (req, res) => {
+  try {
+    const devis = await DevisGrille.findById(req.params.id).lean();
+    if (!devis) return res.status(404).json({ success: false, message: "Devis introuvable" });
+
+    const buf = toBuffer(devis?.demandePdf?.data);
+    if (!buf?.length) return res.status(404).json({ success: false, message: "PDF non trouvé" });
+
+    res.setHeader("Content-Type", devis.demandePdf.contentType || "application/pdf");
+    res.setHeader("Content-Length", buf.length);
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="devis-grille-${req.params.id}.pdf"`
+    );
+    res.end(buf);
+  } catch (e) {
+    console.error("GET /api/admin/devis/grille/:id/pdf error:", e);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+router.get("/devis/grille/:id/document/:index", auth, only("admin"), async (req, res) => {
+  const devis = await DevisGrille.findById(req.params.id).lean();
+  if (!devis || !Array.isArray(devis.documents))
+    return res.status(404).json({ success: false, message: "Document non trouvé" });
+
+  const doc = devis.documents[parseInt(req.params.index, 10)];
+  if (!doc) return res.status(404).json({ success: false, message: "Document inexistant" });
+
+  const buf = toBuffer(doc.data);
+  if (!buf?.length) return res.status(404).json({ success: false, message: "Contenu du document vide" });
+
+  res.setHeader("Content-Type", doc.mimetype || "application/octet-stream");
+  res.setHeader("Content-Length", buf.length);
+  res.setHeader("Content-Disposition", `inline; filename="${doc.filename || "document"}"`);
+  res.end(buf);
+});
+/** -------------------------
+ * 📌 FIL DRESSÉ
+ * ------------------------- */
+import DevisFilDresse from "../models/DevisFilDresse.js"; // 🔹 adapte le chemin selon ton projet
+
+
+// 📌 Liste des devis fil dressé
+router.get("/devis/fil-dresse", auth, only("admin"), async (req, res) => {
+  try {
+    const items = await DevisFilDresse.find({})
+      .populate("user", "prenom nom email numTel")
+      .sort("-createdAt")
+      .lean();
+
+    const mapped = items.map((it) => ({
+      _id: it._id,
+      numero: it.numero,
+      type: it.type,
+      createdAt: it.createdAt,
+      updatedAt: it.updatedAt,
+      user: it.user,
+      spec: it.spec,
+      exigences: it.exigences,
+      remarques: it.remarques,
+      documents: (it.documents || []).map((d, idx) => ({
+        index: idx,
+        filename: d.filename,
+        mimetype: d.mimetype,
+        size: toBuffer(d?.data)?.length || 0,
+        hasData: !!(toBuffer(d?.data)?.length),
+      })),
+      hasDemandePdf: !!(toBuffer(it?.demandePdf?.data)?.length),
+    }));
+
+    res.json({ success: true, items: mapped });
+  } catch (e) {
+    console.error("GET /api/admin/devis/fil-dresse error:", e);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+// 📌 Récupération du PDF
+router.get("/devis/fil-dresse/:id/pdf", auth, only("admin"), async (req, res) => {
+  try {
+    const devis = await DevisFilDresse.findById(req.params.id).lean();
+    if (!devis) return res.status(404).json({ success: false, message: "Devis introuvable" });
+
+    const buf = toBuffer(devis?.demandePdf?.data);
+    if (!buf?.length) return res.status(404).json({ success: false, message: "PDF non trouvé" });
+
+    res.setHeader("Content-Type", devis.demandePdf.contentType || "application/pdf");
+    res.setHeader("Content-Length", buf.length);
+    res.setHeader("Content-Disposition", `inline; filename="devis-fil-dresse-${req.params.id}.pdf"`);
+    res.end(buf);
+  } catch (e) {
+    console.error("GET /api/admin/devis/fil-dresse/:id/pdf error:", e);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+// 📌 Récupération d’un document joint
+router.get("/devis/fil-dresse/:id/document/:index", auth, only("admin"), async (req, res) => {
+  const devis = await DevisFilDresse.findById(req.params.id).lean();
+  if (!devis || !Array.isArray(devis.documents))
+    return res.status(404).json({ success: false, message: "Document non trouvé" });
+
+  const doc = devis.documents[parseInt(req.params.index, 10)];
+  if (!doc) return res.status(404).json({ success: false, message: "Document inexistant" });
+
+  const buf = toBuffer(doc.data);
+  if (!buf?.length) return res.status(404).json({ success: false, message: "Contenu du document vide" });
+
+  res.setHeader("Content-Type", doc.mimetype || "application/octet-stream");
+  res.setHeader("Content-Length", buf.length);
+  res.setHeader("Content-Disposition", `inline; filename="${doc.filename || "document"}"`);
+  res.end(buf);
+});
 
 export default router;

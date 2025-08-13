@@ -10,8 +10,10 @@ import authLoginRoutes from "./routes/auth.js";           // login / logout avec
 import userRoutes from "./routes/user.routes.js";
 import devisTractionRoutes from "./routes/devisTraction.routes.js";
 import adminDevisRoutes from "./routes/admin.devis.routes.js";
-
-
+import devisTorsionRoutes from "./routes/devisTorsion.routes.js";
+import devisCompressionRoutes from "./routes/devisCompression.routes.js";
+import devisGrilleRoutes from "./routes/devisGrille.routes.js";
+import devisFillDresseRoutes from "./routes/devisFilDresse.routes.js";
 dotenv.config();
 
 const app = express();
@@ -47,7 +49,10 @@ app.use("/api/users", userRoutes);
 
 // Soumissions client
 app.use("/api/devis/traction", devisTractionRoutes);
-
+app.use("/api/devis/torsion", devisTorsionRoutes);
+app.use("/api/devis/compression", devisCompressionRoutes);
+app.use("/api/devis/grille", devisGrilleRoutes);
+app.use("/api/devis/fil", devisFillDresseRoutes);
 // Admin (listing, PDF, etc.)
 app.use("/api/admin", adminDevisRoutes);
 
