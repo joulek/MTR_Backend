@@ -3,11 +3,14 @@ import express from "express";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 
-import authRoutes from "./routes/auth.routes.js";
+import authRegisterRoutes from "./routes/auth.routes.js"; // register-client / register-admin
+import authLoginRoutes from "./routes/auth.js";           // login / logout avec cookies HTTP-only
 import userRoutes from "./routes/user.routes.js";
 import devisTractionRoutes from "./routes/devisTraction.routes.js";
-import adminDevisRoutes   from "./routes/admin.devis.routes.js";
+import adminDevisRoutes from "./routes/admin.devis.routes.js";
+
 
 dotenv.config();
 
@@ -16,14 +19,13 @@ const app = express();
 app.use(cors({
   origin: "http://localhost:3000",
   credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"]
+  methods: ["GET","POST","PUT","DELETE","OPTIONS"],
+  allowedHeaders: ["Content-Type","Authorization"]
 }));
 
-app.use(express.json());
 
-// ⚠️ ENLÈVE cette ligne (ne la remplace pas par /(.*) ou autre)
-// app.options("*", cors());   // <-- à supprimer
+app.use(express.json());
+app.use(cookieParser()); // pour lire/écrire les cookies
 
 const MONGO_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/myapp_db";
 
@@ -35,18 +37,24 @@ mongoose.connect(MONGO_URI)
   });
 
 app.get("/", (_, res) => res.send("API OK"));
-app.use("/api/auth", authRoutes);   // pas de regex ici
-app.use("/api/users", userRoutes);  // pas de regex ici
 
-// => pour les soumissions client (ce que ton proxy Next appelle)
+// Authentification
+app.use("/api/auth", authRegisterRoutes); // Inscription
+app.use("/api/auth", authLoginRoutes);    // Connexion / Déconnexion
+
+// Utilisateurs
+app.use("/api/users", userRoutes);
+
+// Soumissions client
 app.use("/api/devis/traction", devisTractionRoutes);
 
-// => pour l’admin (listing, PDF, etc.)
+// Admin (listing, PDF, etc.)
 app.use("/api/admin", adminDevisRoutes);
 
-
+// 404
 app.use((req, res) => res.status(404).json({ error: "Route not found" }));
 
+// Gestion d'erreurs
 app.use((err, req, res, next) => {
   console.error("🔥 Error:", err);
   res.status(err.status || 500).json({ error: err.message || "Server error" });
@@ -57,6 +65,7 @@ const server = app.listen(PORT, () =>
   console.log(`🚀 Server running on http://localhost:${PORT}`)
 );
 
+// Shutdown propre
 const shutdown = async () => {
   console.log("\n⏹️  Shutting down...");
   await mongoose.connection.close();

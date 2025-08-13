@@ -3,12 +3,31 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 
+/** Utilitaire commun pour poser les cookies */
+function setAuthCookies(res, { token, role }) {
+  const common = {
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 jours
+    path: "/",
+  };
+  res.cookie("token", token, { httpOnly: true, ...common });
+  res.cookie("role", role, { httpOnly: false, ...common });
+}
+
+/** Nettoyage (logout / échec) */
+export function clearAuthCookies(res) {
+  res.cookie("token", "", { path: "/", maxAge: 0 });
+  res.cookie("role", "", { path: "/", maxAge: 0 });
+}
+
 export const registerClient = async (req, res) => {
   try {
     const { nom, prenom, email, password, numTel, adresse, personal, company } = req.body;
     if (!nom || !prenom || !email || !password) {
       return res.status(400).json({ message: "nom, prénom, email, password obligatoires" });
     }
+
     const exists = await User.findOne({ email });
     if (exists) return res.status(400).json({ message: "Email déjà utilisé" });
 
@@ -23,10 +42,17 @@ export const registerClient = async (req, res) => {
     });
 
     const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "7d" });
-    res.status(201).json({ success: true, token, role: user.role, user });
+
+    // ✅ Cookies HTTP-only
+    setAuthCookies(res, { token, role: user.role });
+
+    // Ne pas renvoyer de token dans le body
+    res.status(201).json({ success: true, user: user.toJSON(), role: user.role });
   } catch (e) {
     console.error("registerClient ERROR:", e);
-    if (e.code === 11000 && e.keyPattern?.email) return res.status(400).json({ message: "Email déjà utilisé" });
+    if (e.code === 11000 && e.keyPattern?.email) {
+      return res.status(400).json({ message: "Email déjà utilisé" });
+    }
     res.status(500).json({ message: "Erreur serveur" });
   }
 };
@@ -35,6 +61,7 @@ export const registerAdmin = async (req, res) => {
   try {
     const { email, password, nom, prenom } = req.body;
     if (!email || !password) return res.status(400).json({ message: "email & password obligatoires" });
+
     const exists = await User.findOne({ email });
     if (exists) return res.status(400).json({ message: "Email déjà utilisé" });
 
@@ -47,31 +74,12 @@ export const registerAdmin = async (req, res) => {
       prenom: prenom || "",
     });
 
-    res.status(201).json({ success: true, user });
+    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "7d" });
+    setAuthCookies(res, { token, role: user.role });
+
+    res.status(201).json({ success: true, user: user.toJSON(), role: user.role });
   } catch (e) {
     console.error("registerAdmin ERROR:", e);
-    res.status(500).json({ message: "Erreur serveur" });
-  }
-};
-
-export const login = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const user = await User.findOne({ email }).select("+passwordHash");
-    if (!user) return res.status(400).json({ message: "Identifiants invalides" });
-
-    const ok = await bcrypt.compare(password, user.passwordHash);
-    if (!ok) return res.status(400).json({ message: "Identifiants invalides" });
-
-    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "7d" });
-    res.json({
-      success: true,
-      token,
-      role: user.role,
-      user: user.toJSON(), // passwordHash est supprimé par toJSON()
-    });
-  } catch (e) {
-    console.error("login ERROR:", e);
     res.status(500).json({ message: "Erreur serveur" });
   }
 };
