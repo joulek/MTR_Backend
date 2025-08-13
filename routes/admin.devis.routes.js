@@ -332,7 +332,7 @@ import DevisFilDresse from "../models/DevisFilDresse.js"; // 🔹 adapte le chem
 
 
 // 📌 Liste des devis fil dressé
-router.get("/devis/fil-dresse", auth, only("admin"), async (req, res) => {
+router.get("/devis/fil", auth, only("admin"), async (req, res) => {
   try {
     const items = await DevisFilDresse.find({})
       .populate("user", "prenom nom email numTel")
@@ -361,13 +361,13 @@ router.get("/devis/fil-dresse", auth, only("admin"), async (req, res) => {
 
     res.json({ success: true, items: mapped });
   } catch (e) {
-    console.error("GET /api/admin/devis/fil-dresse error:", e);
+    console.error("GET /api/admin/devis/fil error:", e);
     res.status(500).json({ success: false, message: "Erreur serveur" });
   }
 });
 
 // 📌 Récupération du PDF
-router.get("/devis/fil-dresse/:id/pdf", auth, only("admin"), async (req, res) => {
+router.get("/devis/fil/:id/pdf", auth, only("admin"), async (req, res) => {
   try {
     const devis = await DevisFilDresse.findById(req.params.id).lean();
     if (!devis) return res.status(404).json({ success: false, message: "Devis introuvable" });
@@ -377,16 +377,16 @@ router.get("/devis/fil-dresse/:id/pdf", auth, only("admin"), async (req, res) =>
 
     res.setHeader("Content-Type", devis.demandePdf.contentType || "application/pdf");
     res.setHeader("Content-Length", buf.length);
-    res.setHeader("Content-Disposition", `inline; filename="devis-fil-dresse-${req.params.id}.pdf"`);
+    res.setHeader("Content-Disposition", `inline; filename="devis-fil-${req.params.id}.pdf"`);
     res.end(buf);
   } catch (e) {
-    console.error("GET /api/admin/devis/fil-dresse/:id/pdf error:", e);
+    console.error("GET /api/admin/devis/fil/:id/pdf error:", e);
     res.status(500).json({ success: false, message: "Erreur serveur" });
   }
 });
 
 // 📌 Récupération d’un document joint
-router.get("/devis/fil-dresse/:id/document/:index", auth, only("admin"), async (req, res) => {
+router.get("/devis/fil/:id/document/:index", auth, only("admin"), async (req, res) => {
   const devis = await DevisFilDresse.findById(req.params.id).lean();
   if (!devis || !Array.isArray(devis.documents))
     return res.status(404).json({ success: false, message: "Document non trouvé" });
@@ -402,5 +402,88 @@ router.get("/devis/fil-dresse/:id/document/:index", auth, only("admin"), async (
   res.setHeader("Content-Disposition", `inline; filename="${doc.filename || "document"}"`);
   res.end(buf);
 });
+/** -------------------------
+ * 📌 AUTRE ARTICLE
+ * ------------------------- */
+import DevisAutre from "../models/DevisAutre.js"; // 🔹 adapte le chemin/nom selon ton projet
+
+// 📌 Liste des devis "autre"
+router.get("/devis/autre", auth, only("admin"), async (req, res) => {
+  try {
+    const items = await DevisAutre.find({})
+      .populate("user", "prenom nom email numTel")
+      .sort("-createdAt")
+      .lean();
+
+    const mapped = items.map((it) => ({
+      _id: it._id,
+      numero: it.numero,
+      type: it.type,
+      createdAt: it.createdAt,
+      updatedAt: it.updatedAt,
+      user: it.user,
+      spec: it.spec,               // ⚙️ tes champs spécifiques "autre"
+      exigences: it.exigences,
+      remarques: it.remarques,
+      documents: (it.documents || []).map((d, idx) => ({
+        index: idx,
+        filename: d.filename,
+        mimetype: d.mimetype,
+        size: toBuffer(d?.data)?.length || 0,
+        hasData: !!(toBuffer(d?.data)?.length),
+      })),
+      hasDemandePdf: !!(toBuffer(it?.demandePdf?.data)?.length),
+    }));
+
+    res.json({ success: true, items: mapped });
+  } catch (e) {
+    console.error("GET /api/admin/devis/autre error:", e);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+// 📌 Récupération du PDF "autre"
+router.get("/devis/autre/:id/pdf", auth, only("admin"), async (req, res) => {
+  try {
+    const devis = await DevisAutre.findById(req.params.id).lean();
+    if (!devis) return res.status(404).json({ success: false, message: "Devis introuvable" });
+
+    const buf = toBuffer(devis?.demandePdf?.data);
+    if (!buf?.length) return res.status(404).json({ success: false, message: "PDF non trouvé" });
+
+    res.setHeader("Content-Type", devis.demandePdf.contentType || "application/pdf");
+    res.setHeader("Content-Length", buf.length);
+    res.setHeader("Content-Disposition", `inline; filename="devis-autre-${req.params.id}.pdf"`);
+    res.end(buf);
+  } catch (e) {
+    console.error("GET /api/admin/devis/autre/:id/pdf error:", e);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+// 📌 Récupération d’un document joint "autre"
+router.get("/devis/autre/:id/document/:index", auth, only("admin"), async (req, res) => {
+  try {
+    const devis = await DevisAutre.findById(req.params.id).lean();
+    if (!devis || !Array.isArray(devis.documents))
+      return res.status(404).json({ success: false, message: "Document non trouvé" });
+
+    const idx = parseInt(req.params.index, 10);
+    const doc = devis.documents[idx];
+    if (!doc) return res.status(404).json({ success: false, message: "Document inexistant" });
+
+    const buf = toBuffer(doc.data);
+    if (!buf?.length) return res.status(404).json({ success: false, message: "Contenu du document vide" });
+
+    res.setHeader("Content-Type", doc.mimetype || "application/octet-stream");
+    res.setHeader("Content-Length", buf.length);
+    res.setHeader("Content-Disposition", `inline; filename="${doc.filename || "document"}"`);
+    res.end(buf);
+  } catch (e) {
+    console.error("GET /api/admin/devis/autre/:id/document/:index error:", e);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
 
 export default router;

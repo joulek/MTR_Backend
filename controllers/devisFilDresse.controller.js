@@ -8,24 +8,32 @@ const toNum = (val) => Number(String(val ?? "").replace(",", "."));
 const formatDevisNumber = (year, seq) =>
   `DDV${String(year).slice(-2)}${String(seq).padStart(5, "0")}`;
 
-/** Création d’une demande de devis: Fil Dressé */
+/**
+ * POST /api/devis/filDresse
+ * - nécessite auth (req.user.id)
+ * - accepte des fichiers (req.files) -> documents
+ */
 export const createDevisFilDresse = async (req, res) => {
   try {
     if (!req.user?.id) {
-      return res.status(401).json({ success: false, message: "Utilisateur non authentifié" });
+      return res
+        .status(401)
+        .json({ success: false, message: "Utilisateur non authentifié" });
     }
 
+    // Champs attendus depuis le form
     const {
       longueurValeur,
-      longueurUnite,   // "mm" | "m"
+      longueurUnite, // "mm" | "m"
       diametre,
       quantiteValeur,
-      quantiteUnite,   // "pieces" | "kg"
-      matiere,         // "Acier galvanisé" | "Acier Noir" | "Acier ressort" | "Acier inoxydable"
+      quantiteUnite, // "pieces" | "kg"
+      matiere,       // "Acier galvanisé" | "Acier Noir" | "Acier ressort" | "Acier inoxydable"
       exigences,
       remarques,
     } = req.body;
 
+    // Normalisation numérique + structuration conforme au schéma
     const spec = {
       longueurValeur: toNum(longueurValeur),
       longueurUnite,
@@ -37,13 +45,14 @@ export const createDevisFilDresse = async (req, res) => {
       matiere,
     };
 
+    // Fichiers joints du client (depuis multer)
     const documents = (req.files || []).map((f) => ({
       filename: f.originalname,
       mimetype: f.mimetype,
       data: f.buffer,
     }));
 
-    // Numéro séquentiel DDVYY#####
+    // Génération du numéro séquentiel par année
     const year = new Date().getFullYear();
     const counterId = `devis:${year}`;
     const c = await Counter.findOneAndUpdate(
@@ -51,9 +60,9 @@ export const createDevisFilDresse = async (req, res) => {
       { $inc: { seq: 1 } },
       { upsert: true, new: true }
     ).lean();
-    const numero = formatDevisNumber(year, c.seq);
+    const numero = formatDevisNumber(year, c.seq); // ex: DDV2500001
 
-    // 1) Enregistrer sans générer le PDF (réponse rapide)
+    // 1) Création en base (sans PDF pour une réponse rapide)
     const devis = await DevisFilDresse.create({
       numero,
       user: req.user.id,
@@ -65,39 +74,52 @@ export const createDevisFilDresse = async (req, res) => {
     });
 
     // 2) Réponse immédiate
-    res.status(201).json({ success: true, devisId: devis._id, numero: devis.numero });
+    res.status(201).json({
+      success: true,
+      devisId: devis._id,
+      numero: devis.numero,
+    });
 
-    // 3) Génération PDF + e-mail en tâche non bloquante
+    // 3) Suite asynchrone: PDF + email + stockage PDF
     setImmediate(async () => {
+      // util binaire (Mongo/lean)
       const toBuffer = (maybeBinary) => {
         if (!maybeBinary) return null;
         if (Buffer.isBuffer(maybeBinary)) return maybeBinary;
         if (maybeBinary.buffer && Buffer.isBuffer(maybeBinary.buffer)) {
           return Buffer.from(maybeBinary.buffer);
         }
-        try { return Buffer.from(maybeBinary); } catch { return null; }
+        try {
+          return Buffer.from(maybeBinary);
+        } catch {
+          return null;
+        }
       };
 
       try {
-        // ⚠️ Si ton builder attend un doc mongoose, enlève .lean()
+        // Récup complète
         const full = await DevisFilDresse.findById(devis._id)
           .populate("user", "nom prenom email numTel adresse company personal")
           .lean();
 
-        // 3.1 Générer le PDF
+        // Générer le PDF spécifique "fil dressé"
         const pdfBuffer = await buildDevisFilDressePDF(full);
 
-        // 3.2 Stocker le PDF
+        // Stocker le PDF dans le doc
         await DevisFilDresse.findByIdAndUpdate(
           devis._id,
-          { $set: { demandePdf: { data: pdfBuffer, contentType: "application/pdf" } } },
+          {
+            $set: {
+              demandePdf: { data: pdfBuffer, contentType: "application/pdf" },
+            },
+          },
           { new: true }
         );
 
-        // 3.3 Préparer les pièces jointes
+        // Construire les PJ (PDF + docs client <= 15 Mo)
         const attachments = [
           {
-            filename: `devis-fil-${full._id}.pdf`,
+            filename: `devis-filDresse-${full._id}.pdf`,
             content: pdfBuffer,
             contentType: "application/pdf",
           },
@@ -111,33 +133,44 @@ export const createDevisFilDresse = async (req, res) => {
           const name = (doc?.filename || "").trim();
           const buf = toBuffer(doc?.data);
           const type = doc?.mimetype || "application/octet-stream";
-          if (!name || name.startsWith("~$")) continue;
+
+          if (!name || name.startsWith("~$")) continue; // ignorer fichiers temp Office
           if (!buf || buf.length === 0) continue;
           if (total + buf.length > MAX_TOTAL) {
-            console.warn("[MAIL] PJ ignorée (>15Mo):", name);
+            console.warn(
+              "[MAIL] PJ ignorée (taille totale > 15 Mo):",
+              name
+            );
             continue;
           }
+
           attachments.push({ filename: name, content: buf, contentType: type });
           total += buf.length;
         }
 
-        // 3.4 Mail
+        // Infos mail
         const transporter = makeTransport();
         const fullName =
-          [full.user?.prenom, full.user?.nom].filter(Boolean).join(" ") || "Client";
+          [full.user?.prenom, full.user?.nom].filter(Boolean).join(" ") ||
+          "Client";
         const clientEmail = full.user?.email || "-";
         const clientTel = full.user?.numTel || "-";
         const clientAdr = full.user?.adresse || "-";
 
         const human = (n = 0) => {
           const u = ["B", "KB", "MB", "GB"];
-          let i = 0, v = n;
-          while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+          let i = 0,
+            v = n;
+          while (v >= 1024 && i < u.length - 1) {
+            v /= 1024;
+            i++;
+          }
           return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${u[i]}`;
         };
 
         const docsList =
-          attachments.slice(1)
+          attachments
+            .slice(1) // skip le PDF généré
             .map((a) => `- ${a.filename} (${human(a.content.length)})`)
             .join("\n") || "(aucun document client)";
 
@@ -152,8 +185,14 @@ Infos client
 - Téléphone: ${clientTel}
 - Adresse: ${clientAdr}
 
+Spécifications:
+- Longueur: ${full.spec?.longueurValeur} ${full.spec?.longueurUnite}
+- Diamètre: ${full.spec?.diametre}
+- Quantité: ${full.spec?.quantiteValeur} ${full.spec?.quantiteUnite}
+- Matière: ${full.spec?.matiere}
+
 Pièces jointes:
-- PDF de la demande: devis-fil-${full._id}.pdf (${human(pdfBuffer.length)})
+- PDF de la demande: devis-filDresse-${full._id}.pdf (${human(pdfBuffer.length)})
 Documents client:
 ${docsList}
 `;
@@ -173,9 +212,19 @@ ${docsList}
   <li><b>Adresse:</b> ${clientAdr}</li>
 </ul>
 
+<h3>Spécifications</h3>
+<ul>
+  <li><b>Longueur:</b> ${full.spec?.longueurValeur} ${full.spec?.longueurUnite}</li>
+  <li><b>Diamètre:</b> ${full.spec?.diametre}</li>
+  <li><b>Quantité:</b> ${full.spec?.quantiteValeur} ${full.spec?.quantiteUnite}</li>
+  <li><b>Matière:</b> ${full.spec?.matiere}</li>
+</ul>
+
 <h3>Pièces jointes</h3>
 <ul>
-  <li>PDF de la demande: <code>devis-fil-${full._id}.pdf</code> (${human(pdfBuffer.length)})</li>
+  <li>PDF de la demande: <code>devis-filDresse-${full._id}.pdf</code> (${human(
+            pdfBuffer.length
+          )})</li>
 </ul>
 
 <h3>Documents client</h3>
@@ -192,11 +241,13 @@ ${docsList}
           attachments,
         });
       } catch (err) {
-        console.error("Post-send PDF/email failed (fil):", err);
+        console.error("Post-send PDF/email failed (filDresse):", err);
       }
     });
   } catch (e) {
     console.error("createDevisFilDresse:", e);
-    res.status(400).json({ success: false, message: e.message || "Données invalides" });
+    res
+      .status(400)
+      .json({ success: false, message: e.message || "Données invalides" });
   }
 };

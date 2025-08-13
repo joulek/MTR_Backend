@@ -1,12 +1,19 @@
-// routes/devis.routes.js
+// routes/devisTraction.routes.js
 import { Router } from "express";
-import auth, { only } from "../middleware/auth.js";
 import multer from "multer";
+import auth, { only } from "../middleware/auth.js";
 import { createDevisFilDresse } from "../controllers/devisFilDresse.controller.js";
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
 
-const upload = multer(); // mémoire; champ "docs"
 const router = Router();
 
-router.post("/devis/fil", auth, only("client"), upload.array("docs"), createDevisFilDresse);
+router.post(
+  "/", // <-- route relative
+  auth,
+  only("client"),
+  upload.array("docs"), // <-- parse tous les champs et fichiers
+  createDevisFilDresse
+);
 
 export default router;

@@ -17,4 +17,4 @@ schema.add({
   }
 });
 
-export default mongoose.model("DevisAutre", schema);
+export default mongoose.model("DemandeDevisAutre", schema);

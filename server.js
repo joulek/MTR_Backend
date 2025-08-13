@@ -13,7 +13,8 @@ import adminDevisRoutes from "./routes/admin.devis.routes.js";
 import devisTorsionRoutes from "./routes/devisTorsion.routes.js";
 import devisCompressionRoutes from "./routes/devisCompression.routes.js";
 import devisGrilleRoutes from "./routes/devisGrille.routes.js";
-import devisFillDresseRoutes from "./routes/devisFilDresse.routes.js";
+import devisFillDresseRoutes from "./routes/devisfilDresse.routes.js";
+import devisAutreRoutes from "./routes/devisAutre.routes.js"; // Autres demandes de devis
 dotenv.config();
 
 const app = express();
@@ -52,7 +53,8 @@ app.use("/api/devis/traction", devisTractionRoutes);
 app.use("/api/devis/torsion", devisTorsionRoutes);
 app.use("/api/devis/compression", devisCompressionRoutes);
 app.use("/api/devis/grille", devisGrilleRoutes);
-app.use("/api/devis/fil", devisFillDresseRoutes);
+app.use("/api/devis/filDresse", devisFillDresseRoutes);
+app.use("/api/devis/autre", devisAutreRoutes); // Autres demandes de devis
 // Admin (listing, PDF, etc.)
 app.use("/api/admin", adminDevisRoutes);
 
