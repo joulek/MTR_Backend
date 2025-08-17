@@ -57,93 +57,93 @@ export const createDevisTraction = async (req, res) => {
     res.status(201).json({ success: true, devisId: devis._id, numero: devis.numero });
 
     // 3) Générer PDF + envoyer email + stocker PDF **après** la réponse (non bloquant)
-   // 3) Générer PDF + envoyer email + stocker PDF **après** la réponse (non bloquant)
-setImmediate(async () => {
-  // petit util pour fiabiliser la conversion binaire
-  const toBuffer = (maybeBinary) => {
-    if (!maybeBinary) return null;
-    if (Buffer.isBuffer(maybeBinary)) return maybeBinary;
-    if (maybeBinary.buffer && Buffer.isBuffer(maybeBinary.buffer)) {
-      return Buffer.from(maybeBinary.buffer);
-    }
-    try { return Buffer.from(maybeBinary); } catch { return null; }
-  };
+    // 3) Générer PDF + envoyer email + stocker PDF **après** la réponse (non bloquant)
+    setImmediate(async () => {
+      // petit util pour fiabiliser la conversion binaire
+      const toBuffer = (maybeBinary) => {
+        if (!maybeBinary) return null;
+        if (Buffer.isBuffer(maybeBinary)) return maybeBinary;
+        if (maybeBinary.buffer && Buffer.isBuffer(maybeBinary.buffer)) {
+          return Buffer.from(maybeBinary.buffer);
+        }
+        try { return Buffer.from(maybeBinary); } catch { return null; }
+      };
 
-  try {
-    const full = await DevisTraction.findById(devis._id)
-      .populate("user", "nom prenom email numTel adresse company personal")
-      .lean(); // lean pour perf: on manipulera de vrais Buffer via toBuffer
+      try {
+        const full = await DevisTraction.findById(devis._id)
+          .populate("user", "nom prenom email numTel adresse company personal")
+          .lean(); // lean pour perf: on manipulera de vrais Buffer via toBuffer
 
-    // 1) Génération PDF de la DEMANDE
-    //    (si buildDevisTractionPDF attend un doc mongoose, tu peux enlever .lean() ci-dessus)
-    const pdfBuffer = await buildDevisTractionPDF(full);
+        // 1) Génération PDF de la DEMANDE
+        //    (si buildDevisTractionPDF attend un doc mongoose, tu peux enlever .lean() ci-dessus)
+        const pdfBuffer = await buildDevisTractionPDF(full);
 
-    // 2) Stocker le PDF dans 'demandePdf'
-    await DevisTraction.findByIdAndUpdate(
-      devis._id,
-      { $set: { demandePdf: { data: pdfBuffer, contentType: "application/pdf" } } },
-      { new: true }
-    );
+        // 2) Stocker le PDF dans 'demandePdf'
+        await DevisTraction.findByIdAndUpdate(
+          devis._id,
+          { $set: { demandePdf: { data: pdfBuffer, contentType: "application/pdf" } } },
+          { new: true }
+        );
 
-    // 3) Préparer la liste des pièces jointes
-    const attachments = [];
+        // 3) Préparer la liste des pièces jointes
+        const attachments = [];
 
-    // a) PDF généré
-    attachments.push({
-      filename: `devis-traction-${full._id}.pdf`,
-      content: pdfBuffer,
-      contentType: "application/pdf",
-    });
+        // a) PDF généré
+        attachments.push({
+          filename: `devis-traction-${full._id}.pdf`,
+          content: pdfBuffer,
+          contentType: "application/pdf",
+        });
 
-    // b) Documents associés uploadés par le client
-    const docs = Array.isArray(full.documents) ? full.documents : [];
-    // (Optionnel) limite totale à 15 Mo pour éviter les erreurs SMTP
-    const MAX_TOTAL = 15 * 1024 * 1024;
-    let total = pdfBuffer.length;
+        // b) Documents associés uploadés par le client
+        const docs = Array.isArray(full.documents) ? full.documents : [];
+        // (Optionnel) limite totale à 15 Mo pour éviter les erreurs SMTP
+        const MAX_TOTAL = 15 * 1024 * 1024;
+        let total = pdfBuffer.length;
 
-    for (const doc of docs) {
-      const name = (doc?.filename || "").trim();
-      const buf  = toBuffer(doc?.data);
-      const type = doc?.mimetype || "application/octet-stream";
+        for (const doc of docs) {
+          const name = (doc?.filename || "").trim();
+          const buf = toBuffer(doc?.data);
+          const type = doc?.mimetype || "application/octet-stream";
 
-      // skip fichiers temporaires Office "~$" ou vides
-      if (!name || name.startsWith("~$")) continue;
-      if (!buf || buf.length === 0) continue;
+          // skip fichiers temporaires Office "~$" ou vides
+          if (!name || name.startsWith("~$")) continue;
+          if (!buf || buf.length === 0) continue;
 
-      // respect d'un plafond de taille total
-      if (total + buf.length > MAX_TOTAL) {
-        console.warn("[MAIL] Pièce jointe ignorée (taille totale > 15 Mo):", name);
-        continue;
-      }
+          // respect d'un plafond de taille total
+          if (total + buf.length > MAX_TOTAL) {
+            console.warn("[MAIL] Pièce jointe ignorée (taille totale > 15 Mo):", name);
+            continue;
+          }
 
-      attachments.push({
-        filename: name,
-        content: buf,
-        contentType: type,
-      });
-      total += buf.length;
-    }
+          attachments.push({
+            filename: name,
+            content: buf,
+            contentType: type,
+          });
+          total += buf.length;
+        }
 
-    // 4) Corps du mail
-    const transporter = makeTransport();
-    const fullName    = [full.user?.prenom, full.user?.nom].filter(Boolean).join(" ") || "Client";
-    const clientEmail = full.user?.email || "-";
-    const clientTel   = full.user?.numTel || "-";
-    const clientAdr   = full.user?.adresse || "-";
+        // 4) Corps du mail
+        const transporter = makeTransport();
+        const fullName = [full.user?.prenom, full.user?.nom].filter(Boolean).join(" ") || "Client";
+        const clientEmail = full.user?.email || "-";
+        const clientTel = full.user?.numTel || "-";
+        const clientAdr = full.user?.adresse || "-";
 
-    // petit helper taille lisible
-    const human = (n=0)=> {
-      const u=["B","KB","MB","GB"]; let i=0, v=n;
-      while (v>=1024 && i<u.length-1) { v/=1024; i++; }
-      return `${v.toFixed(v<10&&i>0?1:0)} ${u[i]}`;
-    };
+        // petit helper taille lisible
+        const human = (n = 0) => {
+          const u = ["B", "KB", "MB", "GB"]; let i = 0, v = n;
+          while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+          return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${u[i]}`;
+        };
 
-    const docsList =
-      attachments.slice(1) // on exclut le 1er (le PDF généré)
-        .map(a => `- ${a.filename} (${human(a.content.length)})`)
-        .join("\n") || "(aucun document client)";
+        const docsList =
+          attachments.slice(1) // on exclut le 1er (le PDF généré)
+            .map(a => `- ${a.filename} (${human(a.content.length)})`)
+            .join("\n") || "(aucun document client)";
 
-    const textBody = `Nouvelle demande de devis – Ressort de Traction
+        const textBody = `Nouvelle demande de devis – Ressort de Traction
 
 Numéro: ${full.numero}
 Date: ${new Date(full.createdAt).toLocaleString()}
@@ -160,7 +160,7 @@ Documents client:
 ${docsList}
 `;
 
-    const htmlBody = `
+        const htmlBody = `
 <h2>Nouvelle demande de devis – Ressort de Traction</h2>
 <ul>
   <li><b>Numéro:</b> ${full.numero}</li>
@@ -184,20 +184,20 @@ ${docsList}
 <pre style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">${docsList}</pre>
 `;
 
-    // 5) Envoi du mail avec toutes les PJ
-    await transporter.sendMail({
-      from: process.env.SMTP_USER,
-      to: process.env.ADMIN_EMAIL,
-      replyTo: clientEmail !== "-" ? clientEmail : undefined,
-      subject: `Nouvelle demande de devis ${full.numero} (Traction)`,
-      text: textBody,
-      html: htmlBody,
-      attachments,
+        // 5) Envoi du mail avec toutes les PJ
+        await transporter.sendMail({
+          from: process.env.SMTP_USER,
+          to: process.env.ADMIN_EMAIL,
+          replyTo: clientEmail !== "-" ? clientEmail : undefined,
+          subject: `${full.numero} - ${fullName} (Type : Traction)`,
+          text: textBody,
+          html: htmlBody,
+          attachments,
+        });
+      } catch (err) {
+        console.error("Post-send PDF/email failed:", err);
+      }
     });
-  } catch (err) {
-    console.error("Post-send PDF/email failed:", err);
-  }
-});
 
 
   } catch (e) {

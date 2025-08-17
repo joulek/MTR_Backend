@@ -14,30 +14,23 @@ router.post("/login", async (req, res) => {
 
     // Lire le hash du mot de passe
     const user = await User.findOne({ email }).select("+passwordHash");
-    if (!user) return res.status(400).json({ message: "Utilisateur introuvable" });
+    if (!user) return res.status(400).json({ message: "Identifiants invalides" });
 
-    const ok = await bcrypt.compare(password, user.passwordHash);
-    if (!ok) return res.status(400).json({ message: "Mot de passe incorrect" });
+    const ok = await bcrypt.compare(password, user.passwordHash || "");
+    if (!ok) return res.status(400).json({ message: "Identifiants invalides" });
 
-    // Générer le JWT
-    const token = jwt.sign(
-      { id: user._id, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
+    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "7d" });
 
-    // Définir les cookies
+    // Cookies
     const common = {
-      sameSite: "lax",
+      sameSite: "lax",                                   // "none" si domaine différent + HTTPS
       secure: process.env.NODE_ENV === "production",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 jours
+      maxAge: 7 * 24 * 60 * 60 * 1000,
       path: "/",
     };
-
     res.cookie("token", token, { httpOnly: true, ...common });
     res.cookie("role", user.role, { httpOnly: false, ...common });
 
-    // Réponse (sans renvoyer le token dans le body)
     res.json({ success: true, role: user.role, user: user.toJSON() });
   } catch (err) {
     console.error("login ERROR:", err);
