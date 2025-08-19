@@ -4,7 +4,7 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-
+import path from "path";
 import authRegisterRoutes from "./routes/auth.routes.js"; // register-client / register-admin
 import authLoginRoutes from "./routes/auth.js";           // login / logout avec cookies HTTP-only
 import userRoutes from "./routes/user.routes.js";
@@ -15,7 +15,13 @@ import devisCompressionRoutes from "./routes/devisCompression.routes.js";
 import devisGrilleRoutes from "./routes/devisGrille.routes.js";
 import devisFillDresseRoutes from "./routes/devisfilDresse.routes.js";
 import devisAutreRoutes from "./routes/devisAutre.routes.js"; // Autres demandes de devis
+import ProductRoutes  from "./routes/product.routes.js";
+import categoryRoutes from "./routes/category.routes.js";
+
+
+
 dotenv.config();
+
 
 const app = express();
 
@@ -29,7 +35,7 @@ app.use(cors({
 
 app.use(express.json());
 app.use(cookieParser()); // pour lire/écrire les cookies
-
+app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads")));
 const MONGO_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/myapp_db";
 
 mongoose.connect(MONGO_URI)
@@ -40,11 +46,11 @@ mongoose.connect(MONGO_URI)
   });
 
 app.get("/", (_, res) => res.send("API OK"));
-
+app.use("/api/categories", categoryRoutes);
 // Authentification
 app.use("/api/auth", authRegisterRoutes); // Inscription
 app.use("/api/auth", authLoginRoutes);    // Connexion / Déconnexion
-
+app.use("/api/produits", ProductRoutes);
 // Utilisateurs
 app.use("/api/users", userRoutes);
 

@@ -13,16 +13,21 @@ export function clearAuthCookies(res) {
 }
 
 
-function setAuthCookies(res, { token, role }) {
+// controllers/authController.js
+function setAuthCookies(res, { token, role, remember }) {
   const common = {
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
     path: "/",
   };
-  res.cookie("token", token, { httpOnly: true, ...common });
-  res.cookie("role", role, { httpOnly: false, ...common });
+
+  // ⏱ durée: 30 jours si remember, sinon cookie de session (pas de maxAge)
+  const opts = remember ? { ...common, maxAge: 30 * 24 * 60 * 60 * 1000 } : common;
+
+  res.cookie("token", token, { httpOnly: true, ...opts });
+  res.cookie("role", role, { httpOnly: false, ...opts });
 }
+
 
 export const registerClient = async (req, res) => {
   try {

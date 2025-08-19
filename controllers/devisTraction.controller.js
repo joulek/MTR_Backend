@@ -189,7 +189,7 @@ ${docsList}
           from: process.env.SMTP_USER,
           to: process.env.ADMIN_EMAIL,
           replyTo: clientEmail !== "-" ? clientEmail : undefined,
-          subject: `${full.numero} - ${fullName} (Type : Traction)`,
+          subject: `${fullName} - ${full.numero} `,
           text: textBody,
           html: htmlBody,
           attachments,
