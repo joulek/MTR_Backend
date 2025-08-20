@@ -41,8 +41,8 @@ export const createDevisCompression = async (req, res) => {
 
       quantite: toNum(quantite),
       matiere,
-      enroulement, // optionnel selon ton schéma (pas required)
-      extremite,   // idem
+      enroulement, // optionnel
+      extremite,   // optionnel
     };
 
     // Fichiers joints du client
@@ -52,7 +52,7 @@ export const createDevisCompression = async (req, res) => {
       data: f.buffer,
     }));
 
-    // Génération du numéro (compteur par année, même mécanisme que traction)
+    // Génération du numéro (compteur par année)
     const year = new Date().getFullYear();
     const counterId = `devis:${year}`;
     const c = await Counter.findOneAndUpdate(
@@ -63,7 +63,7 @@ export const createDevisCompression = async (req, res) => {
 
     const numero = formatDevisNumber(year, c.seq); // ex: DDV2500001
 
-    // 1) Création en base (sans PDF pour garder un UI rapide)
+    // 1) Création en base (sans PDF pour UI rapide)
     const devis = await DevisCompression.create({
       numero,
       user: req.user.id,
@@ -81,24 +81,19 @@ export const createDevisCompression = async (req, res) => {
 
     // 3) Suite asynchrone: PDF + email + stockage PDF
     setImmediate(async () => {
-      // util binaire (Mongo/lean)
       const toBuffer = (maybeBinary) => {
         if (!maybeBinary) return null;
         if (Buffer.isBuffer(maybeBinary)) return maybeBinary;
         if (maybeBinary.buffer && Buffer.isBuffer(maybeBinary.buffer)) {
           return Buffer.from(maybeBinary.buffer);
         }
-        try {
-          return Buffer.from(maybeBinary);
-        } catch {
-          return null;
-        }
+        try { return Buffer.from(maybeBinary); } catch { return null; }
       };
 
       try {
-        // Récup complète (lean pour perf)
+        // Récup complète
         const full = await DevisCompression.findById(devis._id)
-          .populate("user", "nom prenom email numTel adresse company personal")
+          .populate("user", "nom prenom email numTel adresse accountType company personal")
           .lean();
 
         // Générer PDF
@@ -107,11 +102,7 @@ export const createDevisCompression = async (req, res) => {
         // Stocker dans demandePdf
         await DevisCompression.findByIdAndUpdate(
           devis._id,
-          {
-            $set: {
-              demandePdf: { data: pdfBuffer, contentType: "application/pdf" },
-            },
-          },
+          { $set: { demandePdf: { data: pdfBuffer, contentType: "application/pdf" } } },
           { new: true }
         );
 
@@ -124,7 +115,7 @@ export const createDevisCompression = async (req, res) => {
           },
         ];
 
-        // Limite totale (optionnel) pour éviter erreurs SMTP
+        // Limite totale pour éviter erreurs SMTP
         const MAX_TOTAL = 15 * 1024 * 1024; // 15 Mo
         let total = pdfBuffer.length;
 
@@ -137,10 +128,7 @@ export const createDevisCompression = async (req, res) => {
           if (!name || name.startsWith("~$")) continue; // ignorer fichiers temp Office
           if (!buf || buf.length === 0) continue;
           if (total + buf.length > MAX_TOTAL) {
-            console.warn(
-              "[MAIL] Pièce jointe ignorée (taille totale > 15 Mo):",
-              name
-            );
+            console.warn("[MAIL] PJ ignorée (>15 Mo):", name);
             continue;
           }
 
@@ -150,21 +138,16 @@ export const createDevisCompression = async (req, res) => {
 
         // Infos mail
         const transporter = makeTransport();
-        const fullName =
-          [full.user?.prenom, full.user?.nom].filter(Boolean).join(" ") ||
-          "Client";
+        const fullName = [full.user?.prenom, full.user?.nom].filter(Boolean).join(" ") || "Client";
         const clientEmail = full.user?.email || "-";
         const clientTel = full.user?.numTel || "-";
         const clientAdr = full.user?.adresse || "-";
+        const clientType = full.user?.accountType || "-"; // ✅ Type de compte
 
         const human = (n = 0) => {
           const u = ["B", "KB", "MB", "GB"];
-          let i = 0,
-            v = n;
-          while (v >= 1024 && i < u.length - 1) {
-            v /= 1024;
-            i++;
-          }
+          let i = 0, v = n;
+          while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
           return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${u[i]}`;
         };
 
@@ -184,6 +167,7 @@ Infos client
 - Email: ${clientEmail}
 - Téléphone: ${clientTel}
 - Adresse: ${clientAdr}
+- Type de compte: ${clientType}
 
 Pièces jointes:
 - PDF de la demande: devis-compression-${full._id}.pdf (${human(pdfBuffer.length)})
@@ -204,13 +188,12 @@ ${docsList}
   <li><b>Email:</b> ${clientEmail}</li>
   <li><b>Téléphone:</b> ${clientTel}</li>
   <li><b>Adresse:</b> ${clientAdr}</li>
+  <li><b>Type de compte:</b> ${clientType}</li>
 </ul>
 
 <h3>Pièces jointes</h3>
 <ul>
-  <li>PDF de la demande: <code>devis-compression-${full._id}.pdf</code> (${human(
-          pdfBuffer.length
-        )})</li>
+  <li>PDF de la demande: <code>devis-compression-${full._id}.pdf</code> (${human(pdfBuffer.length)})</li>
 </ul>
 
 <h3>Documents client</h3>
@@ -221,7 +204,7 @@ ${docsList}
           from: process.env.SMTP_USER,
           to: process.env.ADMIN_EMAIL,
           replyTo: clientEmail !== "-" ? clientEmail : undefined,
-          subject: `Nouvelle demande de devis ${full.numero} (Compression)`,
+          subject: `${fullName} - ${full.numero}`, // ✅ Nom Prénom - DDVxxxxx
           text: textBody,
           html: htmlBody,
           attachments,

@@ -69,7 +69,6 @@ export const createDevisGrille = async (req, res) => {
 
     // Tâches “post” non bloquantes
     setImmediate(async () => {
-      // util binaire
       const toBuffer = (maybeBinary) => {
         if (!maybeBinary) return null;
         if (Buffer.isBuffer(maybeBinary)) return maybeBinary;
@@ -81,7 +80,7 @@ export const createDevisGrille = async (req, res) => {
 
       try {
         const full = await DevisGrille.findById(devis._id)
-          .populate("user", "nom prenom email numTel adresse company personal")
+          .populate("user", "nom prenom email numTel adresse accountType company personal")
           .lean();
 
         // 1) PDF
@@ -94,7 +93,7 @@ export const createDevisGrille = async (req, res) => {
           { new: true }
         );
 
-        // 3) pièces jointes (PDF + documents client, plafond 15 Mo)
+        // 3) pièces jointes
         const attachments = [
           {
             filename: `devis-grille-${full._id}.pdf`,
@@ -123,21 +122,16 @@ export const createDevisGrille = async (req, res) => {
         // 4) Email
         const transporter = makeTransport();
 
-        const fullName =
-          [full.user?.prenom, full.user?.nom].filter(Boolean).join(" ") ||
-          "Client";
+        const fullName = [full.user?.prenom, full.user?.nom].filter(Boolean).join(" ") || "Client";
         const clientEmail = full.user?.email || "-";
         const clientTel = full.user?.numTel || "-";
         const clientAdr = full.user?.adresse || "-";
+        const clientType = full.user?.accountType || "-"; // ✅ ajout type de compte
 
         const human = (n = 0) => {
           const u = ["B", "KB", "MB", "GB"];
-          let i = 0,
-            v = n;
-          while (v >= 1024 && i < u.length - 1) {
-            v /= 1024;
-            i++;
-          }
+          let i = 0, v = n;
+          while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
           return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${u[i]}`;
         };
 
@@ -157,6 +151,7 @@ Infos client
 - Email: ${clientEmail}
 - Téléphone: ${clientTel}
 - Adresse: ${clientAdr}
+- Type de compte: ${clientType}
 
 Pièces jointes:
 - PDF de la demande: devis-grille-${full._id}.pdf (${human(pdfBuffer.length)})
@@ -177,13 +172,12 @@ ${docsList}
   <li><b>Email:</b> ${clientEmail}</li>
   <li><b>Téléphone:</b> ${clientTel}</li>
   <li><b>Adresse:</b> ${clientAdr}</li>
+  <li><b>Type de compte:</b> ${clientType}</li>
 </ul>
 
 <h3>Pièces jointes</h3>
 <ul>
-  <li>PDF de la demande: <code>devis-grille-${full._id}.pdf</code> (${human(
-            pdfBuffer.length
-          )})</li>
+  <li>PDF de la demande: <code>devis-grille-${full._id}.pdf</code> (${human(pdfBuffer.length)})</li>
 </ul>
 
 <h3>Documents client</h3>
@@ -194,7 +188,7 @@ ${docsList}
           from: process.env.SMTP_USER,
           to: process.env.ADMIN_EMAIL,
           replyTo: clientEmail !== "-" ? clientEmail : undefined,
-          subject: `Nouvelle demande de devis ${full.numero} (Grille)`,
+          subject: `${fullName} - ${full.numero}`, 
           text: textBody,
           html: htmlBody,
           attachments,

@@ -76,7 +76,7 @@ export const createDevisTorsion = async (req, res) => {
 
       try {
         const full = await DevisTorsion.findById(devis._id)
-          .populate("user", "nom prenom email numTel adresse company personal")
+          .populate("user", "nom prenom email numTel adresse accountType company personal")
           .lean();
 
         // Génération PDF
@@ -117,11 +117,11 @@ export const createDevisTorsion = async (req, res) => {
         const clientEmail = full.user?.email || "-";
         const clientTel   = full.user?.numTel || "-";
         const clientAdr   = full.user?.adresse || "-";
+        const clientType  = full.user?.accountType || "-"; // ✅ Type de compte
 
         const human = (n=0)=> {
           const u=["B","KB","MB","GB"]; let i=0, v=n;
-          while (v>=1024 && i<u.length-1) { v/=1024; i++;
-          }
+          while (v>=1024 && i<u.length-1) { v/=1024; i++; }
           return `${v.toFixed(v<10&&i>0?1:0)} ${u[i]}`;
         };
 
@@ -140,6 +140,7 @@ Infos client
 - Email: ${clientEmail}
 - Téléphone: ${clientTel}
 - Adresse: ${clientAdr}
+- Type de compte: ${clientType}
 
 Pièces jointes:
 - PDF de la demande: devis-torsion-${full._id}.pdf (${human(pdfBuffer.length)})
@@ -160,6 +161,7 @@ ${docsList}
   <li><b>Email:</b> ${clientEmail}</li>
   <li><b>Téléphone:</b> ${clientTel}</li>
   <li><b>Adresse:</b> ${clientAdr}</li>
+  <li><b>Type de compte:</b> ${clientType}</li>
 </ul>
 
 <h3>Pièces jointes</h3>
@@ -175,7 +177,7 @@ ${docsList}
           from: process.env.SMTP_USER,
           to: process.env.ADMIN_EMAIL,
           replyTo: clientEmail !== "-" ? clientEmail : undefined,
-          subject: `Nouvelle demande de devis ${full.numero} (Torsion)`,
+          subject: `${fullName} - ${full.numero}`, // Nom Prénom - DDVxxxxx
           text: textBody,
           html: htmlBody,
           attachments,

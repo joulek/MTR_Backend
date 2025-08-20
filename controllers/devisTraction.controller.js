@@ -57,9 +57,7 @@ export const createDevisTraction = async (req, res) => {
     res.status(201).json({ success: true, devisId: devis._id, numero: devis.numero });
 
     // 3) Générer PDF + envoyer email + stocker PDF **après** la réponse (non bloquant)
-    // 3) Générer PDF + envoyer email + stocker PDF **après** la réponse (non bloquant)
     setImmediate(async () => {
-      // petit util pour fiabiliser la conversion binaire
       const toBuffer = (maybeBinary) => {
         if (!maybeBinary) return null;
         if (Buffer.isBuffer(maybeBinary)) return maybeBinary;
@@ -71,33 +69,27 @@ export const createDevisTraction = async (req, res) => {
 
       try {
         const full = await DevisTraction.findById(devis._id)
-          .populate("user", "nom prenom email numTel adresse company personal")
-          .lean(); // lean pour perf: on manipulera de vrais Buffer via toBuffer
+          .populate("user", "nom prenom email numTel adresse accountType company personal")
+          .lean();
 
-        // 1) Génération PDF de la DEMANDE
-        //    (si buildDevisTractionPDF attend un doc mongoose, tu peux enlever .lean() ci-dessus)
+        // 1) Générer PDF de la demande
         const pdfBuffer = await buildDevisTractionPDF(full);
 
-        // 2) Stocker le PDF dans 'demandePdf'
+        // 2) Stocker le PDF
         await DevisTraction.findByIdAndUpdate(
           devis._id,
           { $set: { demandePdf: { data: pdfBuffer, contentType: "application/pdf" } } },
           { new: true }
         );
 
-        // 3) Préparer la liste des pièces jointes
-        const attachments = [];
-
-        // a) PDF généré
-        attachments.push({
+        // 3) Préparer les pièces jointes
+        const attachments = [{
           filename: `devis-traction-${full._id}.pdf`,
           content: pdfBuffer,
           contentType: "application/pdf",
-        });
+        }];
 
-        // b) Documents associés uploadés par le client
         const docs = Array.isArray(full.documents) ? full.documents : [];
-        // (Optionnel) limite totale à 15 Mo pour éviter les erreurs SMTP
         const MAX_TOTAL = 15 * 1024 * 1024;
         let total = pdfBuffer.length;
 
@@ -105,33 +97,24 @@ export const createDevisTraction = async (req, res) => {
           const name = (doc?.filename || "").trim();
           const buf = toBuffer(doc?.data);
           const type = doc?.mimetype || "application/octet-stream";
-
-          // skip fichiers temporaires Office "~$" ou vides
           if (!name || name.startsWith("~$")) continue;
           if (!buf || buf.length === 0) continue;
-
-          // respect d'un plafond de taille total
           if (total + buf.length > MAX_TOTAL) {
             console.warn("[MAIL] Pièce jointe ignorée (taille totale > 15 Mo):", name);
             continue;
           }
-
-          attachments.push({
-            filename: name,
-            content: buf,
-            contentType: type,
-          });
+          attachments.push({ filename: name, content: buf, contentType: type });
           total += buf.length;
         }
 
         // 4) Corps du mail
         const transporter = makeTransport();
-        const fullName = [full.user?.prenom, full.user?.nom].filter(Boolean).join(" ") || "Client";
-        const clientEmail = full.user?.email || "-";
-        const clientTel = full.user?.numTel || "-";
-        const clientAdr = full.user?.adresse || "-";
+        const fullName   = [full.user?.prenom, full.user?.nom].filter(Boolean).join(" ") || "Client";
+        const clientEmail= full.user?.email || "-";
+        const clientTel  = full.user?.numTel || "-";
+        const clientAdr  = full.user?.adresse || "-";
+        const clientType = full.user?.accountType || "-"; // ✅ Type de compte
 
-        // petit helper taille lisible
         const human = (n = 0) => {
           const u = ["B", "KB", "MB", "GB"]; let i = 0, v = n;
           while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
@@ -139,7 +122,7 @@ export const createDevisTraction = async (req, res) => {
         };
 
         const docsList =
-          attachments.slice(1) // on exclut le 1er (le PDF généré)
+          attachments.slice(1)
             .map(a => `- ${a.filename} (${human(a.content.length)})`)
             .join("\n") || "(aucun document client)";
 
@@ -153,6 +136,7 @@ Infos client
 - Email: ${clientEmail}
 - Téléphone: ${clientTel}
 - Adresse: ${clientAdr}
+- Type de compte: ${clientType}
 
 Pièces jointes:
 - PDF de la demande: devis-traction-${full._id}.pdf (${human(pdfBuffer.length)})
@@ -173,6 +157,7 @@ ${docsList}
   <li><b>Email:</b> ${clientEmail}</li>
   <li><b>Téléphone:</b> ${clientTel}</li>
   <li><b>Adresse:</b> ${clientAdr}</li>
+  <li><b>Type de compte:</b> ${clientType}</li>
 </ul>
 
 <h3>Pièces jointes</h3>
@@ -184,12 +169,12 @@ ${docsList}
 <pre style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">${docsList}</pre>
 `;
 
-        // 5) Envoi du mail avec toutes les PJ
+        // 5) Envoi du mail
         await transporter.sendMail({
           from: process.env.SMTP_USER,
           to: process.env.ADMIN_EMAIL,
           replyTo: clientEmail !== "-" ? clientEmail : undefined,
-          subject: `${fullName} - ${full.numero} `,
+          subject: `${fullName} - ${full.numero}`, // ✅ Nom Prénom - DDVxxxxx
           text: textBody,
           html: htmlBody,
           attachments,
@@ -198,7 +183,6 @@ ${docsList}
         console.error("Post-send PDF/email failed:", err);
       }
     });
-
 
   } catch (e) {
     console.error("createDevisTraction:", e);

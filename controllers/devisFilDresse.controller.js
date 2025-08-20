@@ -89,17 +89,13 @@ export const createDevisFilDresse = async (req, res) => {
         if (maybeBinary.buffer && Buffer.isBuffer(maybeBinary.buffer)) {
           return Buffer.from(maybeBinary.buffer);
         }
-        try {
-          return Buffer.from(maybeBinary);
-        } catch {
-          return null;
-        }
+        try { return Buffer.from(maybeBinary); } catch { return null; }
       };
 
       try {
         // Récup complète
         const full = await DevisFilDresse.findById(devis._id)
-          .populate("user", "nom prenom email numTel adresse company personal")
+          .populate("user", "nom prenom email numTel adresse accountType company personal")
           .lean();
 
         // Générer le PDF spécifique "fil dressé"
@@ -108,11 +104,7 @@ export const createDevisFilDresse = async (req, res) => {
         // Stocker le PDF dans le doc
         await DevisFilDresse.findByIdAndUpdate(
           devis._id,
-          {
-            $set: {
-              demandePdf: { data: pdfBuffer, contentType: "application/pdf" },
-            },
-          },
+          { $set: { demandePdf: { data: pdfBuffer, contentType: "application/pdf" } } },
           { new: true }
         );
 
@@ -137,10 +129,7 @@ export const createDevisFilDresse = async (req, res) => {
           if (!name || name.startsWith("~$")) continue; // ignorer fichiers temp Office
           if (!buf || buf.length === 0) continue;
           if (total + buf.length > MAX_TOTAL) {
-            console.warn(
-              "[MAIL] PJ ignorée (taille totale > 15 Mo):",
-              name
-            );
+            console.warn("[MAIL] PJ ignorée (taille totale > 15 Mo):", name);
             continue;
           }
 
@@ -150,21 +139,16 @@ export const createDevisFilDresse = async (req, res) => {
 
         // Infos mail
         const transporter = makeTransport();
-        const fullName =
-          [full.user?.prenom, full.user?.nom].filter(Boolean).join(" ") ||
-          "Client";
+        const fullName = [full.user?.prenom, full.user?.nom].filter(Boolean).join(" ") || "Client";
         const clientEmail = full.user?.email || "-";
         const clientTel = full.user?.numTel || "-";
         const clientAdr = full.user?.adresse || "-";
+        const clientType = full.user?.accountType || "-"; // ✅ Type de compte
 
         const human = (n = 0) => {
           const u = ["B", "KB", "MB", "GB"];
-          let i = 0,
-            v = n;
-          while (v >= 1024 && i < u.length - 1) {
-            v /= 1024;
-            i++;
-          }
+          let i = 0, v = n;
+          while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
           return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${u[i]}`;
         };
 
@@ -184,6 +168,7 @@ Infos client
 - Email: ${clientEmail}
 - Téléphone: ${clientTel}
 - Adresse: ${clientAdr}
+- Type de compte: ${clientType}
 
 Spécifications:
 - Longueur: ${full.spec?.longueurValeur} ${full.spec?.longueurUnite}
@@ -210,6 +195,7 @@ ${docsList}
   <li><b>Email:</b> ${clientEmail}</li>
   <li><b>Téléphone:</b> ${clientTel}</li>
   <li><b>Adresse:</b> ${clientAdr}</li>
+  <li><b>Type de compte:</b> ${clientType}</li>
 </ul>
 
 <h3>Spécifications</h3>
@@ -222,9 +208,7 @@ ${docsList}
 
 <h3>Pièces jointes</h3>
 <ul>
-  <li>PDF de la demande: <code>devis-filDresse-${full._id}.pdf</code> (${human(
-            pdfBuffer.length
-          )})</li>
+  <li>PDF de la demande: <code>devis-filDresse-${full._id}.pdf</code> (${human(pdfBuffer.length)})</li>
 </ul>
 
 <h3>Documents client</h3>
@@ -235,7 +219,7 @@ ${docsList}
           from: process.env.SMTP_USER,
           to: process.env.ADMIN_EMAIL,
           replyTo: clientEmail !== "-" ? clientEmail : undefined,
-          subject: `Nouvelle demande de devis ${full.numero} (Fil dressé)`,
+          subject: `${fullName} - ${full.numero}`, // ✅ Nom Prénom - DDVxxxxx
           text: textBody,
           html: htmlBody,
           attachments,
