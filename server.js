@@ -17,8 +17,9 @@ import devisFillDresseRoutes from "./routes/devisfilDresse.routes.js";
 import devisAutreRoutes from "./routes/devisAutre.routes.js"; // Autres demandes de devis
 import ProductRoutes  from "./routes/product.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
-
-
+import ArticleRoutes from "./routes/article.routes.js";
+import devisRoutes from "./routes/devis.routes.js"; // Autres demandes de devis
+import reclamationRoutes from "./routes/reclamation.routes.js";
 
 dotenv.config();
 
@@ -51,6 +52,7 @@ app.use("/api/categories", categoryRoutes);
 app.use("/api/auth", authRegisterRoutes); // Inscription
 app.use("/api/auth", authLoginRoutes);    // Connexion / Déconnexion
 app.use("/api/produits", ProductRoutes);
+app.use("/api/articles", ArticleRoutes);
 // Utilisateurs
 app.use("/api/users", userRoutes);
 
@@ -61,6 +63,8 @@ app.use("/api/devis/compression", devisCompressionRoutes);
 app.use("/api/devis/grille", devisGrilleRoutes);
 app.use("/api/devis/filDresse", devisFillDresseRoutes);
 app.use("/api/devis/autre", devisAutreRoutes); // Autres demandes de devis
+app.use("/api/devis", devisRoutes); // Autres demandes de devis
+app.use("/api/reclamations", reclamationRoutes);
 // Admin (listing, PDF, etc.)
 app.use("/api/admin", adminDevisRoutes);
 

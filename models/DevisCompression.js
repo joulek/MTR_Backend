@@ -29,4 +29,4 @@ schema.add({
 });
 
 
-export default mongoose.model("DevisCompression", schema);
+export default mongoose.model("DemandeDevisCompression", schema);
