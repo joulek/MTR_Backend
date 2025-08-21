@@ -11,10 +11,10 @@ import {
 
 const router = Router();
 
-router.post("/", upload.array("images", 10), createProduct);
+router.post("/", upload.array("images", 20), createProduct);
 router.get("/", getProducts);
 router.get("/:id", getProductById);
-router.put("/:id", upload.array("images", 10), updateProduct); // maj avec images
+router.put("/:id", upload.array("images", 20), updateProduct); // maj avec images
 router.delete("/:id", deleteProduct);
 
 export default router;

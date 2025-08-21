@@ -280,3 +280,16 @@ export const resetPassword = async (req, res) => {
   return res.status(410).json({ message: "Ce flux est obsolète. Utilisez le reset par code." });
 };
 
+// controllers/authController.js
+export const checkEmailExists = async (req, res) => {
+  try {
+    const { email } = req.body ?? {};
+    if (!email) return res.status(400).json({ exists: false, message: "Email requis" });
+    const user = await User.findOne({ email }).select("_id");
+    return res.json({ exists: !!user });
+  } catch (e) {
+    return res.status(500).json({ exists: false, message: "Erreur serveur" });
+  }
+};
+
+

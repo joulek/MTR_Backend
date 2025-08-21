@@ -4,6 +4,8 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import { clearAuthCookies } from "../controllers/authController.js";
+import { checkEmailExists } from "../controllers/authController.js";
+
 
 const router = Router();
 
@@ -70,7 +72,7 @@ router.post("/login", async (req, res) => {
     res.status(500).json({ message: "Erreur serveur" });
   }
 });
-
+router.post("/check-email", checkEmailExists);
 
 /** POST /api/auth/logout : supprime les cookies */
 router.post("/logout", (req, res) => {
