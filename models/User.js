@@ -18,6 +18,18 @@ const companySchema = new mongoose.Schema(
   { _id: false }
 );
 
+const passwordResetSchema = new mongoose.Schema(
+  {
+    // ⚠️ On passe de token → code chiffré
+    codeHash: { type: String, select: false, index: true },
+    expiresAt: { type: Date, select: false, index: true },
+    usedAt: { type: Date, select: false },
+    attempts: { type: Number, select: false, default: 0 },
+    lastSentAt: { type: Date, select: false }
+  },
+  { _id: false }
+);
+
 const userSchema = new mongoose.Schema(
   {
     accountType: { type: String, enum: ["personnel", "societe"], required: true, index: true },
@@ -39,19 +51,13 @@ const userSchema = new mongoose.Schema(
     personal: personalSchema,
     company: companySchema,
 
-    // 🔐 Reset password (sécurisé par hash)
-    passwordReset: {
-      tokenHash: { type: String, select: false, index: true },
-      expiresAt: { type: Date,   select: false, index: true },
-      usedAt:    { type: Date,   select: false },
-    },
+    // 🔐 Reset password par CODE
+    passwordReset: { type: passwordResetSchema, default: () => ({}) },
   },
   { timestamps: true }
 );
 
-// (Optionnel) index TTL si tu veux purge auto quand expiresAt est dépassé.
-// userSchema.index({ "passwordReset.expiresAt": 1 }, { expireAfterSeconds: 0, partialFilterExpression: { "passwordReset.expiresAt": { $type: "date" } } });
-
+// ----- toJSON: on masque ce qu'il faut -----
 userSchema.methods.toJSON = function () {
   const obj = this.toObject({ getters: true, virtuals: false });
   delete obj.passwordHash;
@@ -60,6 +66,7 @@ userSchema.methods.toJSON = function () {
   return obj;
 };
 
+// Règle métier exemple (inchangée)
 userSchema.pre("validate", function (next) {
   if (this.role === "client") {
     if (!this.nom || !this.prenom) {
@@ -69,17 +76,35 @@ userSchema.pre("validate", function (next) {
   next();
 });
 
-/** Génère un token raw (à envoyer par email) et stocke son hash + expiration. */
-userSchema.methods.createPasswordResetToken = function (ttlMinutes = 60) {
-  const rawToken = crypto.randomBytes(32).toString("hex");
-  const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
-  this.passwordReset = { tokenHash, expiresAt: new Date(Date.now() + ttlMinutes * 60 * 1000), usedAt: null };
-  return rawToken; // <-- c'est ça que tu mets dans l'URL
+// ====== Helpers Reset via CODE ======
+/** Génère un code numérique à 6 chiffres (par défaut), stocke son hash + expiration */
+userSchema.methods.createPasswordResetCode = function (ttlMinutes = 10, length = 6) {
+  let rawCode = "";
+  for (let i = 0; i < length; i++) {
+    rawCode += crypto.randomInt(0, 10).toString();
+  }
+  const codeHash = crypto.createHash("sha256").update(rawCode).digest("hex");
+  this.passwordReset = {
+    codeHash,
+    expiresAt: new Date(Date.now() + ttlMinutes * 60 * 1000),
+    usedAt: null,
+    attempts: 0,
+    lastSentAt: new Date()
+  };
+  return rawCode; // à envoyer par email
 };
 
-/** Marque le token comme consommé et l’invalide. */
-userSchema.methods.clearPasswordResetToken = function () {
-  this.passwordReset = { tokenHash: undefined, expiresAt: undefined, usedAt: new Date() };
+/** Vérifie le code */
+userSchema.methods.verifyPasswordResetCode = function (code) {
+  if (!this.passwordReset?.codeHash || !this.passwordReset?.expiresAt) return "bad";
+  if (Date.now() > this.passwordReset.expiresAt.getTime()) return "expired";
+  const hash = crypto.createHash("sha256").update(String(code || "")).digest("hex");
+  return hash === this.passwordReset.codeHash ? "ok" : "bad";
+};
+
+/** Invalide le code (après usage ou expiration) */
+userSchema.methods.clearPasswordResetState = function () {
+  this.passwordReset = {};
 };
 
 export default mongoose.model("User", userSchema);

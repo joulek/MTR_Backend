@@ -20,7 +20,7 @@ import categoryRoutes from "./routes/category.routes.js";
 import ArticleRoutes from "./routes/article.routes.js";
 import devisRoutes from "./routes/devis.routes.js"; // Autres demandes de devis
 import reclamationRoutes from "./routes/reclamation.routes.js";
-
+import authRoutes from "./routes/auth.routes.js"; // Authentification (login, logout, etc.)
 dotenv.config();
 
 
@@ -55,7 +55,7 @@ app.use("/api/produits", ProductRoutes);
 app.use("/api/articles", ArticleRoutes);
 // Utilisateurs
 app.use("/api/users", userRoutes);
-
+app.use("/api/auth", authRoutes); 
 // Soumissions client
 app.use("/api/devis/traction", devisTractionRoutes);
 app.use("/api/devis/torsion", devisTorsionRoutes);

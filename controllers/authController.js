@@ -4,6 +4,10 @@ import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import nodemailer from "nodemailer";
 import crypto from "crypto";
+// controllers/auth.controller.js
+
+const NEUTRAL = "Si un compte existe, un email a été envoyé.";
+const COOLDOWN_MS = 60 * 1000; // anti-spam envoi code (60s)
 /** Utilitaire commun pour poser les cookies */
 // controllers/authController.js
 export function clearAuthCookies(res) {
@@ -172,80 +176,107 @@ export const whoami = async (req, res) => {
 
 
 
-/** 🚀 Demande reset password */
+
+// 🚀 Ex-forgot: envoie un CODE (pas de lien)
 export const requestPasswordReset = async (req, res) => {
   try {
     const { email } = req.body ?? {};
     if (!email) return res.status(400).json({ message: "Email requis" });
 
-    const user = await User.findOne({ email });
-    // Réponse neutre pour ne pas révéler l'existence du compte
-    if (!user) return res.json({ message: "Si un compte existe, un email a été envoyé." });
+    const user = await User.findOne({ email }).select("+passwordReset.codeHash +passwordReset.expiresAt +passwordReset.lastSentAt");
+    if (!user) {
+      return res.json({ message: NEUTRAL });
+    }
 
-    // ✅ crée ET stocke (hash + expiration) dans user.passwordReset
-    const rawToken = user.createPasswordResetToken(60); // 60 min
+    // anti-spam
+    const last = user.passwordReset?.lastSentAt?.getTime?.() || 0;
+    if (Date.now() - last < COOLDOWN_MS) {
+      return res.json({ message: NEUTRAL });
+    }
+
+    // crée un code 6 chiffres valide 10 minutes
+    const rawCode = user.createPasswordResetCode(10, 6);
     await user.save();
-
-    const RESET_BASE_URL = process.env.FRONTEND_RESET_URL
-      || "http://localhost:3000/reset-password";
-    const resetUrl = `${RESET_BASE_URL}/${rawToken}`;
 
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || "smtp.gmail.com",
       port: Number(process.env.SMTP_PORT || 587),
-      secure: false, // STARTTLS
+      secure: false,
       auth: {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
       },
     });
 
+    const pretty = rawCode.replace(/(\d{3})(\d{3})/, "$1 $2");
+
     await transporter.sendMail({
       to: user.email,
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
-      subject: "Réinitialisation de mot de passe",
+      subject: "Code de réinitialisation",
       html: `
         <p>Bonjour ${user.prenom || user.nom || "client"},</p>
-        <p>Vous avez demandé une réinitialisation de mot de passe.</p>
-        <p>Cliquez ici (valide 1h) : <a href="${resetUrl}">${resetUrl}</a></p>
+        <p>Voici votre <strong>code de réinitialisation</strong> :</p>
+        <p style="font-size:20px;letter-spacing:3px;"><strong>${pretty}</strong></p>
+        <p>Ce code est valable <strong>10 minutes</strong>.</p>
         <p>Si vous n'êtes pas à l'origine de cette demande, ignorez cet email.</p>
       `,
     });
 
-    res.json({ message: "Si un compte existe, un email a été envoyé." });
+    return res.json({ message: NEUTRAL });
   } catch (err) {
-    console.error("requestPasswordReset:", err);
-    res.status(500).json({ message: "Erreur serveur" });
+    console.error("requestPasswordReset (code):", err);
+    return res.status(500).json({ message: "Erreur serveur" });
   }
 };
 
-
-/** 🚀 Reset password */
-export const resetPassword = async (req, res) => {
+// 🚀 Nouveau: vérifie le CODE et change le mot de passe
+export const resetPasswordWithCode = async (req, res) => {
   try {
-    const { token } = req.params;
-    const { password } = req.body ?? {};
-    if (!token || !password) {
-      return res.status(400).json({ message: "Token et nouveau mot de passe requis" });
+    const { email, code, password } = req.body ?? {};
+    if (!email || !code || !password) {
+      return res.status(400).json({ message: "Champs requis: email, code, password" });
     }
 
-    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    const user = await User.findOne({ email }).select("+passwordHash +passwordReset.codeHash +passwordReset.expiresAt +passwordReset.usedAt +passwordReset.attempts");
+    if (!user) {
+      // neutre envers un attaquant; message “OK” si valide etc.
+      return res.json({ message: "Mot de passe réinitialisé si le code était valide." });
+    }
 
-    const user = await User.findOne({
-      "passwordReset.tokenHash": tokenHash,
-      "passwordReset.expiresAt": { $gt: new Date() },
-      $or: [{ "passwordReset.usedAt": null }, { "passwordReset.usedAt": { $exists: false } }],
-    }).select("+passwordHash +passwordReset.tokenHash +passwordReset.expiresAt +passwordReset.usedAt");
+    // limite tentatives
+    if ((user.passwordReset?.attempts || 0) >= 5) {
+      user.clearPasswordResetState();
+      await user.save();
+      return res.status(429).json({ message: "Trop de tentatives. Redemandez un nouveau code." });
+    }
 
-    if (!user) return res.status(400).json({ message: "Token invalide ou expiré" });
+    const status = user.verifyPasswordResetCode(code);
+    if (status === "expired") {
+      user.clearPasswordResetState();
+      await user.save();
+      return res.status(400).json({ message: "Code expiré. Redemandez un nouveau code." });
+    }
+    if (status !== "ok") {
+      user.passwordReset.attempts = (user.passwordReset.attempts || 0) + 1;
+      await user.save();
+      return res.status(400).json({ message: "Code invalide." });
+    }
 
+    // OK: changer le mot de passe
     user.passwordHash = await bcrypt.hash(password, 10);
-    user.clearPasswordResetToken();
+    user.clearPasswordResetState();
     await user.save();
 
-    res.json({ message: "Mot de passe réinitialisé avec succès." });
+    return res.json({ message: "Mot de passe réinitialisé avec succès." });
   } catch (err) {
-    console.error("resetPassword:", err);
-    res.status(500).json({ message: "Erreur serveur" });
+    console.error("resetPasswordWithCode:", err);
+    return res.status(500).json({ message: "Erreur serveur" });
   }
 };
+
+// (Optionnel) Ancienne version par token – dépréciée
+export const resetPassword = async (req, res) => {
+  return res.status(410).json({ message: "Ce flux est obsolète. Utilisez le reset par code." });
+};
+
