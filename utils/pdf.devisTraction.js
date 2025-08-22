@@ -23,6 +23,11 @@ export function buildDevisTractionPDF(devis) {
     const s = (v ?? "").toString().trim();
     return s ? s : dash ? "-" : "";
   };
+  const hasText = (v) => {
+    if (v === undefined || v === null) return false;
+    const s = String(v).trim();
+    return s.length > 0;
+  };
 
   // PDF traction uniquement → on force le libellé du type
   const SPRING_TYPE_LABEL = "Ressort de traction";
@@ -197,11 +202,16 @@ export function buildDevisTractionPDF(devis) {
   );
 
   /* ───────── EXIGENCES & REMARQUES ───────── */
-  sectionTitle(doc, "Exigences particulières", C_PRIMARY, LEFT, PAGEW);
-  drawParagraph(doc, exigences, { LEFT, RIGHT, C_TEXT, placeholder: "-" });
+  // N'AFFICHE PAS si vide
+  if (hasText(exigences)) {
+    sectionTitle(doc, "Exigences particulières", C_PRIMARY, LEFT, PAGEW);
+    drawParagraph(doc, exigences, { LEFT, RIGHT, C_TEXT, placeholder: "" });
+  }
 
-  sectionTitle(doc, "Autres remarques", C_PRIMARY, LEFT, PAGEW);
-  drawParagraph(doc, remarques, { LEFT, RIGHT, C_TEXT, placeholder: "-" });
+  if (hasText(remarques)) {
+    sectionTitle(doc, "Autres remarques", C_PRIMARY, LEFT, PAGEW);
+    drawParagraph(doc, remarques, { LEFT, RIGHT, C_TEXT, placeholder: "" });
+  }
 
   /* ───────── FOOTER ───────── */
   doc.moveDown(1.5);
