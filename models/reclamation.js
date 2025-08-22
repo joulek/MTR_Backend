@@ -50,7 +50,12 @@ const reclamationSchema = new mongoose.Schema({
     enum: ["remplacement", "reparation", "remboursement", "autre"],
     required: true
   },
-
+   // 🆕 PDF de la réclamation (stocké après génération)
+  demandePdf: {
+    data: { type: Buffer, select: false },        // select:false pour éviter de charger des gros buffers sur les listes
+    contentType: { type: String, default: "application/pdf" },
+    generatedAt: { type: Date }
+  },
 }, { timestamps: true });
 
 export default mongoose.models.Reclamation || mongoose.model("Reclamation", reclamationSchema);

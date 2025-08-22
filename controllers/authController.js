@@ -3,9 +3,8 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import nodemailer from "nodemailer";
-import crypto from "crypto";
 // controllers/auth.controller.js
-
+import mongoose from "mongoose";
 const NEUTRAL = "Si un compte existe, un email a été envoyé.";
 const COOLDOWN_MS = 60 * 1000; // anti-spam envoi code (60s)
 /** Utilitaire commun pour poser les cookies */
@@ -293,3 +292,53 @@ export const checkEmailExists = async (req, res) => {
 };
 
 
+// POST /api/auth/set-password
+export const setPassword = async (req, res) => {
+  try {
+    const { uid, token, password } = req.body || {};
+
+    // 0) validations d'entrée
+    if (!uid || !token || !password) {
+      console.warn("[setPassword] missing fields:", { uid: !!uid, token: !!token, password: !!password });
+      return res.status(400).json({ success: false, message: "Lien invalide" });
+    }
+    if (!mongoose.isValidObjectId(uid)) {
+      console.warn("[setPassword] invalid uid:", uid);
+      return res.status(400).json({ success: false, message: "Lien invalide" });
+    }
+
+    // 1) récupérer user + resetPassword
+    const user = await User.findById(uid).lean(); // lean pour lecture rapide
+    if (!user || !user.resetPassword) {
+      console.warn("[setPassword] user/resetPassword not found:", { uid, hasUser: !!user });
+      return res.status(400).json({ success: false, message: "Lien invalide" });
+    }
+
+    const { token: savedToken, expireAt } = user.resetPassword;
+
+    // 2) vérifier token
+    if (token !== savedToken) {
+      console.warn("[setPassword] token mismatch:", { uid, token, savedToken });
+      return res.status(400).json({ success: false, message: "Lien expiré ou invalide" });
+    }
+
+    // 3) vérifier expiration
+    if (new Date(expireAt).getTime() < Date.now()) {
+      console.warn("[setPassword] token expired:", { uid, expireAt });
+      return res.status(400).json({ success: false, message: "Lien expiré ou invalide" });
+    }
+
+    // 4) mettre à jour le password et effacer le resetPassword
+    const hash = await bcrypt.hash(password, 10);
+    await User.findByIdAndUpdate(
+      uid,
+      { $set: { password: hash }, $unset: { resetPassword: 1 } },
+      { new: true }
+    );
+
+    return res.json({ success: true, message: "Mot de passe défini avec succès" });
+  } catch (err) {
+    console.error("setPassword error:", err);
+    return res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+};
