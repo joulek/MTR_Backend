@@ -4,15 +4,14 @@ import {
   getArticleById,
   createArticle,
   updateArticle,
-  deleteArticle
+  deleteArticle,
+  getArticleByDemande
 } from "../controllers/article.controller.js";
 
 const router = Router();
-
+router.get("/by-demande", getArticleByDemande);
 router.get("/", getArticles);
-router.get("/:id", getArticleById);
 router.post("/", createArticle);
 router.put("/:id", updateArticle);
 router.delete("/:id", deleteArticle);
-
 export default router;

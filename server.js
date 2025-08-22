@@ -23,7 +23,7 @@ import devisRoutes from "./routes/devis.routes.js";
 import reclamationRoutes from "./routes/reclamation.routes.js";           // (si routes supplémentaires
 import auth from "./middleware/auth.js";   
 import multer from "multer";                  // middleware d'authentification
-
+import RoutesDevis from "./routes/route.devis.js";
 import authRoutes from "./routes/auth.routes.js"; // Authentification (login, logout, etc.)
 import mesDemandesDevisRoutes from "./routes/mesDemandesDevis.js";
 
@@ -66,6 +66,10 @@ app.use("/api/categories", categoryRoutes);
 app.use("/api/auth", authRegisterRoutes);  // Inscription
 app.use("/api/auth", authLoginRoutes);     // Connexion / Déconnexion
 app.use("/api/auth", authRoutes);          // (si endpoints supplémentaires)
+app.use(
+  "/files/devis",
+  express.static(path.resolve(process.cwd(), "storage/devis"))
+);
 
 // Ressources
 app.use("/api/produits", ProductRoutes);
@@ -83,7 +87,7 @@ app.use("/api/devis", devisRoutes);
 app.use("/api/reclamations", auth, upload.array("piecesJointes"), reclamationRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/admin/users", userRoutes);
-
+app.use("/api/admin/devis", RoutesDevis);
 app.use("/api", mesDemandesDevisRoutes);
 
 // 404
