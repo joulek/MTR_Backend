@@ -1,174 +1,194 @@
 // controllers/reclamation.controller.js
-import mongoose from "mongoose";
 import Reclamation from "../models/reclamation.js";
+import { buildReclamationPDF } from "../utils/pdf.reclamation.js";
+import { makeTransport } from "../utils/mailer.js";
 
-/* ------------------------- Helpers ------------------------- */
-const buildFilter = (q = {}) => {
-  const f = {};
-  if (q.user) f.user = new mongoose.Types.ObjectId(q.user);
-  if (q.typeDoc) f["commande.typeDoc"] = q.typeDoc;
-  if (q.numero) f["commande.numero"] = q.numero;
-  if (q.nature) f.nature = q.nature;
-  if (q.attente) f.attente = q.attente;
+// petits helpers
+const toDate = (v) => (v ? new Date(v) : undefined);
+const toInt  = (v) => (v === undefined || v === null || v === "" ? undefined : Number(v));
 
-  // Filtre par date de création (createdAt)
-  if (q.from || q.to) {
-    f.createdAt = {};
-    if (q.from) f.createdAt.$gte = new Date(q.from);
-    if (q.to) f.createdAt.$lte = new Date(q.to);
-  }
-  return f;
-};
-
-const required = (cond, msg) => {
-  if (!cond) throw new Error(msg);
-};
-
-/* ------------------------- GET /api/reclamations ------------------------- */
-/**
- * Query:
- *  - user=<userId>
- *  - typeDoc=facture|bon_livraison|bon_commande|devis
- *  - numero=<string>
- *  - nature=produit_non_conforme|...
- *  - attente=remplacement|reparation|remboursement|autre
- *  - from=YYYY-MM-DD
- *  - to=YYYY-MM-DD
- *  - page=1  limit=20  sort=-createdAt
- */
-export const listReclamations = async (req, res) => {
-  try {
-    const page  = Math.max(parseInt(req.query.page || "1", 10), 1);
-    const limit = Math.min(Math.max(parseInt(req.query.limit || "20", 10), 1), 200);
-    const sort  = req.query.sort || "-createdAt";
-    const skip  = (page - 1) * limit;
-
-    const filter = buildFilter(req.query);
-
-    const [items, total] = await Promise.all([
-      Reclamation.find(filter)
-        .sort(sort)
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      Reclamation.countDocuments(filter),
-    ]);
-
-    res.json({
-      success: true,
-      data: items,
-      meta: { page, limit, total, pages: Math.ceil(total / limit) }
-    });
-  } catch (err) {
-    console.error("listReclamations error:", err);
-    res.status(500).json({ success: false, message: "Erreur serveur" });
-  }
-};
-
-/* ------------------------- GET /api/reclamations/:id ------------------------- */
-export const getReclamationById = async (req, res) => {
-  try {
-    const doc = await Reclamation.findById(req.params.id).lean();
-    if (!doc) return res.status(404).json({ success: false, message: "Réclamation introuvable" });
-    res.json({ success: true, data: doc });
-  } catch (err) {
-    console.error("getReclamationById error:", err);
-    res.status(500).json({ success: false, message: "Erreur serveur" });
-  }
-};
-
-/* ------------------------- POST /api/reclamations ------------------------- */
-/**
- * Body JSON attendu (ex):
- * {
- *   "user": "<ObjectId>",
- *   "commande": { "typeDoc":"devis", "numero":"DV2500016", "dateLivraison":"2025-08-21",
- *                 "referenceProduit":"ART-001", "quantite":10 },
- *   "nature":"produit_non_conforme",
- *   "description":"...optionnel...",
- *   "attente":"remplacement",
- *   "piecesJointes":[{ "filename":"photo1.jpg", "mimetype":"image/jpeg", "data":"<base64>" }]
- * }
- */
 export const createReclamation = async (req, res) => {
   try {
-    const { user, commande, nature, description, attente, piecesJointes } = req.body;
-
-    // Validations minimales (pas de lib externe)
-    required(user, "user est obligatoire");
-    required(commande?.typeDoc, "commande.typeDoc est obligatoire");
-    required(commande?.numero, "commande.numero est obligatoire");
-    required(nature, "nature est obligatoire");
-    required(attente, "attente est obligatoire");
-
-    // Normaliser pièces jointes si data en base64
-    let pj = [];
-    if (Array.isArray(piecesJointes)) {
-      pj = piecesJointes.map((p) => {
-        if (p?.data && typeof p.data === "string") {
-          return {
-            filename: p.filename,
-            mimetype: p.mimetype,
-            data: Buffer.from(p.data, "base64"),
-          };
-        }
-        return p;
-      });
+    // 0) auth
+    if (!req.user?.id) {
+      return res.status(401).json({ success:false, message:"Utilisateur non authentifié" });
     }
 
-    const doc = await Reclamation.create({
-      user,
+    // 1) parser body (multipart OU json)
+    const isMultipart = !!req.files || /multipart\/form-data/i.test(req.headers["content-type"] || "");
+    let commande, nature, attente, description, piecesJointes = [];
+
+    if (isMultipart) {
+      commande = {
+        typeDoc: req.body["commande[typeDoc]"] || req.body?.commande?.typeDoc,
+        numero: req.body["commande[numero]"] || req.body?.commande?.numero,
+        dateLivraison: toDate(req.body["commande[dateLivraison]"] || req.body?.commande?.dateLivraison),
+        referenceProduit: req.body["commande[referenceProduit]"] || req.body?.commande?.referenceProduit,
+        quantite: toInt(req.body["commande[quantite]"] || req.body?.commande?.quantite),
+      };
+      nature       = req.body.nature;
+      attente      = req.body.attente;
+      description  = req.body.description;
+
+      const files = Array.isArray(req.files) ? req.files : [];
+      piecesJointes = files.map(f => ({
+        filename: f.originalname,
+        mimetype: f.mimetype,
+        data: f.buffer,
+        size: f.size,
+      }));
+    } else {
+      const b = req.body || {};
+      commande = {
+        typeDoc: b?.commande?.typeDoc,
+        numero: b?.commande?.numero,
+        dateLivraison: toDate(b?.commande?.dateLivraison),
+        referenceProduit: b?.commande?.referenceProduit,
+        quantite: toInt(b?.commande?.quantite),
+      };
+      nature      = b.nature;
+      attente     = b.attente;
+      description = b.description;
+
+      if (Array.isArray(b.piecesJointes)) {
+        piecesJointes = b.piecesJointes.map(p =>
+          p?.data && typeof p.data === "string"
+            ? { filename: p.filename, mimetype: p.mimetype || "application/octet-stream", data: Buffer.from(p.data, "base64") }
+            : p
+        );
+      }
+    }
+
+    // 2) validations mini
+    if (!commande?.typeDoc) return res.status(400).json({ success:false, message:"commande.typeDoc est obligatoire" });
+    if (!commande?.numero)  return res.status(400).json({ success:false, message:"commande.numero est obligatoire" });
+    if (!nature)            return res.status(400).json({ success:false, message:"nature est obligatoire" });
+    if (!attente)           return res.status(400).json({ success:false, message:"attente est obligatoire" });
+
+    // hygiène upload
+    const MAX_FILES = 10, MAX_PER_FILE = 5 * 1024 * 1024;
+    if (piecesJointes.length > MAX_FILES)
+      return res.status(400).json({ success:false, message:`Trop de fichiers (max ${MAX_FILES}).` });
+    for (const p of piecesJointes) {
+      if (p?.size && p.size > MAX_PER_FILE)
+        return res.status(400).json({ success:false, message:`"${p.filename}" dépasse 5 Mo.` });
+    }
+
+    // 3) Sauvegarde rapide
+    const rec = await Reclamation.create({
+      user: req.user.id,
       commande,
       nature,
-      description,
       attente,
-      piecesJointes: pj,
+      description,
+      piecesJointes,
     });
 
-    res.status(201).json({ success: true, data: doc });
-  } catch (err) {
-    console.error("createReclamation error:", err);
-    res.status(400).json({ success: false, message: err.message || "Requête invalide" });
-  }
-};
+    // 4) Réponse immédiate
+    res.status(201).json({ success:true, data: rec });
 
-/* ------------------------- PUT /api/reclamations/:id ------------------------- */
-export const updateReclamation = async (req, res) => {
-  try {
-    const update = { ...req.body };
+    // 5) Traitement async: PDF + email
+    setImmediate(async () => {
+      const toBuffer = (x) => {
+        if (!x) return null;
+        if (Buffer.isBuffer(x)) return x;
+        if (x.buffer && Buffer.isBuffer(x.buffer)) return Buffer.from(x.buffer);
+        try { return Buffer.from(x); } catch { return null; }
+      };
 
-    // Si mise à jour des pièces jointes avec base64
-    if (Array.isArray(update.piecesJointes)) {
-      update.piecesJointes = update.piecesJointes.map((p) => {
-        if (p?.data && typeof p.data === "string") {
-          return { ...p, data: Buffer.from(p.data, "base64") };
+      try {
+        const full = await Reclamation.findById(rec._id)
+          .populate("user", "nom prenom email numTel adresse")
+          .lean();
+
+        // PDF (Buffer)
+        const pdfBuffer = await buildReclamationPDF(full);
+
+        // Stocker le PDF en base (optionnel)
+        await Reclamation.findByIdAndUpdate(
+          rec._id,
+          { $set: { pdf: { data: pdfBuffer, contentType: "application/pdf" } } },
+          { new: true }
+        );
+
+        // SMTP configuré ?
+        if (!process.env.SMTP_HOST || !process.env.SMTP_USER) {
+          console.warn("[MAIL] SMTP non configuré → envoi ignoré");
+          return;
         }
-        return p;
-      });
-    }
 
-    const doc = await Reclamation.findByIdAndUpdate(
-      req.params.id,
-      update,
-      { new: true, runValidators: true }
-    ).lean();
+        const attachments = [{
+          filename: `reclamation-${rec._id}.pdf`,
+          content: pdfBuffer,
+          contentType: "application/pdf",
+        }];
 
-    if (!doc) return res.status(404).json({ success: false, message: "Réclamation introuvable" });
-    res.json({ success: true, data: doc });
-  } catch (err) {
-    console.error("updateReclamation error:", err);
-    res.status(400).json({ success: false, message: err.message || "Requête invalide" });
-  }
-};
+        // Joindre les PJ client (max 15Mo total)
+        let total = pdfBuffer.length;
+        for (const pj of full.piecesJointes || []) {
+          const buf = toBuffer(pj?.data);
+          if (!buf || buf.length === 0) continue;
+          if (total + buf.length > 15 * 1024 * 1024) break;
+          attachments.push({
+            filename: pj.filename || "pj",
+            content: buf,
+            contentType: pj.mimetype || "application/octet-stream",
+          });
+          total += buf.length;
+        }
 
-/* ------------------------- DELETE /api/reclamations/:id ------------------------- */
-export const deleteReclamation = async (req, res) => {
-  try {
-    const doc = await Reclamation.findByIdAndDelete(req.params.id).lean();
-    if (!doc) return res.status(404).json({ success: false, message: "Réclamation introuvable" });
-    res.json({ success: true, data: doc });
-  } catch (err) {
-    console.error("deleteReclamation error:", err);
-    res.status(500).json({ success: false, message: "Erreur serveur" });
+        const transporter = makeTransport();
+        const fullName = [full.user?.prenom, full.user?.nom].filter(Boolean).join(" ") || "Client";
+        const toAdmin   = process.env.ADMIN_EMAIL;
+        const replyTo   = full.user?.email;
+
+        const subject = `Réclamation ${rec._id} – ${fullName}`;
+        const text    =
+`Nouvelle réclamation
+
+Document: ${full.commande?.typeDoc} ${full.commande?.numero}
+Nature  : ${full.nature}
+Attente : ${full.attente}
+Desc.   : ${full.description || "-"}
+
+Client  : ${fullName}
+Email   : ${replyTo || "-"}
+Téléphone: ${full.user?.numTel || "-"}
+Adresse : ${full.user?.adresse || "-"}`;
+
+        const html =
+`<h2>Nouvelle réclamation</h2>
+<ul>
+  <li><b>Document:</b> ${full.commande?.typeDoc} ${full.commande?.numero}</li>
+  <li><b>Nature:</b> ${full.nature}</li>
+  <li><b>Attente:</b> ${full.attente}</li>
+  <li><b>Description:</b> ${full.description || "-"}</li>
+</ul>
+<h3>Client</h3>
+<ul>
+  <li><b>Nom:</b> ${fullName}</li>
+  <li><b>Email:</b> ${replyTo || "-"}</li>
+  <li><b>Téléphone:</b> ${full.user?.numTel || "-"}</li>
+  <li><b>Adresse:</b> ${full.user?.adresse || "-"}</li>
+</ul>`;
+
+        await transporter.sendMail({
+          from: process.env.MAIL_FROM || process.env.SMTP_USER,
+          to: toAdmin || replyTo,      // si pas d'admin, envoie au client
+          replyTo: replyTo || undefined,
+          subject,
+          text,
+          html,
+          attachments,
+        });
+
+        console.log("✅ Mail réclamation envoyé");
+      } catch (err) {
+        console.error("❌ Post-send PDF/email failed:", err);
+      }
+    });
+  } catch (e) {
+    console.error("createReclamation:", e);
+    res.status(400).json({ success:false, message: e.message || "Données invalides" });
   }
 };

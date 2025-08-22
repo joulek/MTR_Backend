@@ -5,8 +5,9 @@ import dotenv from "dotenv";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import path from "path";
-import authRegisterRoutes from "./routes/auth.routes.js"; // register-client / register-admin
-import authLoginRoutes from "./routes/auth.js";           // login / logout avec cookies HTTP-only
+
+import authRegisterRoutes from "./routes/auth.routes.js";     // register-client / register-admin
+import authLoginRoutes from "./routes/auth.js";               // login / logout (cookies HTTP-only)
 import userRoutes from "./routes/user.routes.js";
 import devisTractionRoutes from "./routes/devisTraction.routes.js";
 import adminDevisRoutes from "./routes/admin.devis.routes.js";
@@ -14,18 +15,20 @@ import devisTorsionRoutes from "./routes/devisTorsion.routes.js";
 import devisCompressionRoutes from "./routes/devisCompression.routes.js";
 import devisGrilleRoutes from "./routes/devisGrille.routes.js";
 import devisFillDresseRoutes from "./routes/devisfilDresse.routes.js";
-import devisAutreRoutes from "./routes/devisAutre.routes.js"; // Autres demandes de devis
-import ProductRoutes  from "./routes/product.routes.js";
+import devisAutreRoutes from "./routes/devisAutre.routes.js";
+import ProductRoutes from "./routes/product.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 import ArticleRoutes from "./routes/article.routes.js";
-import devisRoutes from "./routes/devis.routes.js"; // Autres demandes de devis
+import devisRoutes from "./routes/devis.routes.js";
 import reclamationRoutes from "./routes/reclamation.routes.js";
-import authRoutes from "./routes/auth.routes.js"; // Authentification (login, logout, etc.)
+import authRoutes from "./routes/auth.routes.js";             // (si routes supplémentaires
+import auth from "./middleware/auth.js";   
+import multer from "multer";                  // middleware d'authentification
 dotenv.config();
-
-
+const upload = multer({ limits: { fileSize: 5 * 1024 * 1024, files: 10 } });
 const app = express();
 
+/* ---------- Middlewares GLOBAUX (dans le bon ordre) ---------- */
 app.use(cors({
   origin: "http://localhost:3000",
   credentials: true,
@@ -33,12 +36,18 @@ app.use(cors({
   allowedHeaders: ["Content-Type","Authorization"]
 }));
 
+app.use(cookieParser());
 
-app.use(express.json());
-app.use(cookieParser()); // pour lire/écrire les cookies
+// ❗️Important: définir les PARSEURS AVANT les routes
+// Monte une limite confortable pour JSON / urlencoded
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+// Static
 app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads")));
-const MONGO_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/myapp_db";
 
+/* ---------------------- MongoDB ---------------------- */
+const MONGO_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/myapp_db";
 mongoose.connect(MONGO_URI)
   .then(() => console.log("✅ MongoDB connected"))
   .catch((err) => {
@@ -46,43 +55,50 @@ mongoose.connect(MONGO_URI)
     process.exit(1);
   });
 
+/* ---------------------- Routes ---------------------- */
 app.get("/", (_, res) => res.send("API OK"));
 app.use("/api/categories", categoryRoutes);
+
 // Authentification
-app.use("/api/auth", authRegisterRoutes); // Inscription
-app.use("/api/auth", authLoginRoutes);    // Connexion / Déconnexion
+app.use("/api/auth", authRegisterRoutes);  // Inscription
+app.use("/api/auth", authLoginRoutes);     // Connexion / Déconnexion
+app.use("/api/auth", authRoutes);          // (si endpoints supplémentaires)
+
+// Ressources
 app.use("/api/produits", ProductRoutes);
 app.use("/api/articles", ArticleRoutes);
-// Utilisateurs
 app.use("/api/users", userRoutes);
-app.use("/api/auth", authRoutes); 
+
 // Soumissions client
 app.use("/api/devis/traction", devisTractionRoutes);
 app.use("/api/devis/torsion", devisTorsionRoutes);
 app.use("/api/devis/compression", devisCompressionRoutes);
 app.use("/api/devis/grille", devisGrilleRoutes);
 app.use("/api/devis/filDresse", devisFillDresseRoutes);
-app.use("/api/devis/autre", devisAutreRoutes); // Autres demandes de devis
-app.use("/api/devis", devisRoutes); // Autres demandes de devis
-app.use("/api/reclamations", reclamationRoutes);
-// Admin (listing, PDF, etc.)
-app.use("/api/admin", adminDevisRoutes);
+app.use("/api/devis/autre", devisAutreRoutes);
+app.use("/api/devis", devisRoutes);
+app.use("/api/reclamations", auth, upload.array("piecesJointes"), reclamationRoutes);
 
 // 404
 app.use((req, res) => res.status(404).json({ error: "Route not found" }));
 
-// Gestion d'erreurs
+/* ---------------------- Error handler ---------------------- */
 app.use((err, req, res, next) => {
+  // PayloadTooLargeError, etc.
+  // err.statusCode ou err.status selon paquet
+  const status = err.status || err.statusCode || 500;
+  const msg = err.message || "Server error";
   console.error("🔥 Error:", err);
-  res.status(err.status || 500).json({ error: err.message || "Server error" });
+  res.status(status).json({ error: msg });
 });
 
+/* ---------------------- Start ---------------------- */
 const PORT = process.env.PORT || 4000;
 const server = app.listen(PORT, () =>
   console.log(`🚀 Server running on http://localhost:${PORT}`)
 );
 
-// Shutdown propre
+/* ---------------------- Graceful shutdown ---------------------- */
 const shutdown = async () => {
   console.log("\n⏹️  Shutting down...");
   await mongoose.connection.close();
