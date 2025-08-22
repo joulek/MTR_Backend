@@ -9,7 +9,9 @@ export function buildDevisTractionPDF(devis) {
   // get() robuste : ignore les valeurs objets → évite "[object Object]"
   const get = (obj, paths = []) => {
     for (const p of paths) {
-      const v = p.split(".").reduce((a, k) => (a && a[k] !== undefined ? a[k] : undefined), obj);
+      const v = p
+        .split(".")
+        .reduce((a, k) => (a && a[k] !== undefined ? a[k] : undefined), obj);
       if (v === undefined || v === null) continue;
       if (typeof v === "object") continue; // clé importante
       const s = String(v).trim();
@@ -22,8 +24,11 @@ export function buildDevisTractionPDF(devis) {
     return s ? s : dash ? "-" : "";
   };
 
+  // PDF traction uniquement → on force le libellé du type
+  const SPRING_TYPE_LABEL = "Ressort de traction";
+
   /* ───────── DATA ───────── */
-  const { _id, createdAt, user = {}, spec = {}, exigences, remarques, type } = devis || {};
+  const { _id, createdAt, user = {}, spec = {}, exigences, remarques } = devis || {};
 
   // Type de compte : tolère plusieurs variantes
   const accountTypeRaw =
@@ -53,8 +58,8 @@ export function buildDevisTractionPDF(devis) {
     poste: get(user, [
       "personal.posteActuel",
       "personnel.posteActuel",
-      "posteActuel",     // au root si présent
-      "personal.poste",  // anciens champs
+      "posteActuel", // au root si présent
+      "personal.poste", // anciens champs
       "personnel.poste",
       "fonction",
       "role",
@@ -162,11 +167,11 @@ export function buildDevisTractionPDF(devis) {
     );
   } else {
     // fallback si accountType absent/incorrect
-    if (soc.nom)       infoItems.push({ label: "Nom de la société", value: pretty(soc.nom) });
+    if (soc.nom) infoItems.push({ label: "Nom de la société", value: pretty(soc.nom) });
     if (soc.matricule) infoItems.push({ label: "Matricule fiscal", value: pretty(soc.matricule) });
-    if (soc.poste)     infoItems.push({ label: "Poste actuel", value: pretty(soc.poste) });
-    if (perso.cin)     infoItems.push({ label: "CIN", value: pretty(perso.cin) });
-    if (perso.poste)   infoItems.push({ label: "Poste actuel", value: pretty(perso.poste) });
+    if (soc.poste) infoItems.push({ label: "Poste actuel", value: pretty(soc.poste) });
+    if (perso.cin) infoItems.push({ label: "CIN", value: pretty(perso.cin) });
+    if (perso.poste) infoItems.push({ label: "Poste actuel", value: pretty(perso.poste) });
   }
 
   drawTwoColGrid(doc, infoItems, { LEFT, RIGHT, C_LINE, C_TEXT, C_MUTED });
@@ -185,7 +190,8 @@ export function buildDevisTractionPDF(devis) {
       { label: "Sens d'enroulement", value: pretty(spec.enroulement) },
       { label: "Position des anneaux", value: pretty(spec.positionAnneaux) },
       { label: "Type d'accrochage", value: pretty(spec.typeAccrochage) },
-      { label: "Type de ressort", value: pretty(type) },
+      // Traction uniquement → on force le libellé
+      { label: "Type de ressort", value: SPRING_TYPE_LABEL },
     ],
     { LEFT, RIGHT, C_LINE, C_TEXT, C_MUTED }
   );
@@ -231,7 +237,8 @@ function drawTwoColGrid(doc, items, { LEFT, RIGHT, C_LINE, C_TEXT, C_MUTED }) {
   const minRowH = 28;
 
   const rows = [];
-  for (let i = 0; i < items.length; i += 2) rows.push([items[i], items[i + 1] || { label: "", value: "" }]);
+  for (let i = 0; i < items.length; i += 2)
+    rows.push([items[i], items[i + 1] || { label: "", value: "" }]);
 
   rows.forEach(([a, b]) => {
     const yStart = doc.y;
@@ -249,7 +256,13 @@ function drawTwoColGrid(doc, items, { LEFT, RIGHT, C_LINE, C_TEXT, C_MUTED }) {
 }
 
 function measureCellHeight(doc, { label = "", value = "" } = {}, width) {
-  const save = { x: doc.x, y: doc.y, font: doc._font, size: doc._fontSize, fill: doc._fillColor };
+  const save = {
+    x: doc.x,
+    y: doc.y,
+    font: doc._font,
+    size: doc._fontSize,
+    fill: doc._fillColor,
+  };
   const hLabel = doc.font("Helvetica").fontSize(9).heightOfString(label || "", { width });
   const hValue = doc.font("Helvetica-Bold").fontSize(11).heightOfString(String(value || ""), { width });
   doc.x = save.x;
@@ -264,10 +277,11 @@ function renderCell(doc, x, w, y, h, { label = "", value = "" } = {}, { C_TEXT, 
   const pad = 2;
   doc.font("Helvetica").fontSize(9).fillColor(C_MUTED).text(label, x, y + pad, { width: w, align: "left" });
   const afterLabelY = doc.y;
-  doc.font("Helvetica-Bold").fontSize(11).fillColor(C_TEXT).text(String(value || ""), x, afterLabelY, {
-    width: w,
-    align: "left",
-  });
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(11)
+    .fillColor(C_TEXT)
+    .text(String(value || ""), x, afterLabelY, { width: w, align: "left" });
   doc.y = y + h; // fixe la hauteur
 }
 
