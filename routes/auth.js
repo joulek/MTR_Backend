@@ -74,6 +74,7 @@ router.post("/login", async (req, res) => {
 });
 router.post("/check-email", checkEmailExists);
 
+
 /** POST /api/auth/logout : supprime les cookies */
 router.post("/logout", (req, res) => {
   clearAuthCookies(res);
