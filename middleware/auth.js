@@ -32,3 +32,21 @@ export function only(...roles) {
     next();
   };
 }
+// middleware/auth.js
+export function requireAuth(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: "Non authentifié" });
+  }
+  next();
+}
+
+export function requireAdmin(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: "Non authentifié" });
+  }
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ success: false, message: "Accès réservé aux administrateurs" });
+  }
+  next();
+}
+

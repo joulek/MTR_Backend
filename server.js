@@ -71,7 +71,7 @@ app.use("/api/auth", authRoutes);          // (si endpoints supplémentaires)
 app.use("/api/produits", ProductRoutes);
 app.use("/api/articles", ArticleRoutes);
 app.use("/api/users", userRoutes);
-
+app.use("/api/admin", adminDevisRoutes);
 // Soumissions client
 app.use("/api/devis/traction", devisTractionRoutes);
 app.use("/api/devis/torsion", devisTorsionRoutes);
@@ -81,7 +81,8 @@ app.use("/api/devis/filDresse", devisFillDresseRoutes);
 app.use("/api/devis/autre", devisAutreRoutes);
 app.use("/api/devis", devisRoutes);
 app.use("/api/reclamations", auth, upload.array("piecesJointes"), reclamationRoutes);
-
+app.use("/api/users", userRoutes);
+app.use("/api/admin/users", userRoutes);
 
 app.use("/api", mesDemandesDevisRoutes);
 

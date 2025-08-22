@@ -1,8 +1,8 @@
 // routes/user.routes.js
 import { Router } from "express";
-import auth from "../middleware/auth.js"; // doit mettre req.user = { id, role }
-import { me, updateMe, listUsers } from "../controllers/userController.js";
-
+import requireAdmin from "../middleware/auth.js"; // doit mettre req.user = { id, role }
+import { me, updateMe, listUsers,inviteUser } from "../controllers/userController.js";
+import auth from "../middleware/auth.js"; // middleware d'authentification
 const router = Router();
 
 // Profil utilisateur connecté
@@ -24,5 +24,6 @@ router.get(
   },
   listUsers
 );
+router.post("/invite", requireAdmin, inviteUser);
 
 export default router; // ✅ important

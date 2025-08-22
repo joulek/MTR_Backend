@@ -1,6 +1,6 @@
 // routes/auth.routes.js
 import { Router } from "express";
-import { registerClient, registerAdmin,requestPasswordReset,resetPasswordWithCode } from "../controllers/authController.js";
+import { registerClient, registerAdmin,requestPasswordReset,resetPasswordWithCode,setPassword } from "../controllers/authController.js";
 
 const router = Router();
 
@@ -11,4 +11,5 @@ router.post("/register-client", registerClient);
 router.post("/register-admin", registerAdmin);
 router.post("/forgot-password", requestPasswordReset);
 router.post("/reset-password", resetPasswordWithCode);
+router.post("/set-password", setPassword);
 export default router;
