@@ -21,9 +21,14 @@ import categoryRoutes from "./routes/category.routes.js";
 import ArticleRoutes from "./routes/article.routes.js";
 import devisRoutes from "./routes/devis.routes.js";
 import reclamationRoutes from "./routes/reclamation.routes.js";
+<<<<<<< HEAD
 import authRoutes from "./routes/auth.routes.js";             // (si routes supplémentaires
 import auth from "./middleware/auth.js";   
 import multer from "multer";                  // middleware d'authentification
+=======
+import authRoutes from "./routes/auth.routes.js"; // Authentification (login, logout, etc.)
+import mesDemandesDevisRoutes from "./routes/mesDemandesDevis.js";
+>>>>>>> 46a94d2a31e677b0422c2db5bc4fa694b6aa934f
 dotenv.config();
 const upload = multer({ limits: { fileSize: 5 * 1024 * 1024, files: 10 } });
 const app = express();
@@ -78,6 +83,9 @@ app.use("/api/devis/filDresse", devisFillDresseRoutes);
 app.use("/api/devis/autre", devisAutreRoutes);
 app.use("/api/devis", devisRoutes);
 app.use("/api/reclamations", auth, upload.array("piecesJointes"), reclamationRoutes);
+
+
+app.use("/api", mesDemandesDevisRoutes);
 
 // 404
 app.use((req, res) => res.status(404).json({ error: "Route not found" }));
