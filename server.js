@@ -21,6 +21,7 @@ import ArticleRoutes from "./routes/article.routes.js";
 import devisRoutes from "./routes/devis.routes.js"; // Autres demandes de devis
 import reclamationRoutes from "./routes/reclamation.routes.js";
 import authRoutes from "./routes/auth.routes.js"; // Authentification (login, logout, etc.)
+import mesDemandesDevisRoutes from "./routes/mesDemandesDevis.js";
 dotenv.config();
 
 
@@ -67,6 +68,9 @@ app.use("/api/devis", devisRoutes); // Autres demandes de devis
 app.use("/api/reclamations", reclamationRoutes);
 // Admin (listing, PDF, etc.)
 app.use("/api/admin", adminDevisRoutes);
+
+
+app.use("/api", mesDemandesDevisRoutes);
 
 // 404
 app.use((req, res) => res.status(404).json({ error: "Route not found" }));
