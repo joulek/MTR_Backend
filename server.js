@@ -28,6 +28,8 @@ import authRoutes from "./routes/auth.routes.js"; // Authentification (login, lo
 import mesDemandesDevisRoutes from "./routes/mesDemandesDevis.js";
 
 dotenv.config();
+
+
 const upload = multer({ limits: { fileSize: 5 * 1024 * 1024, files: 10 } });
 const app = express();
 
@@ -45,6 +47,7 @@ app.use(cookieParser());
 // Monte une limite confortable pour JSON / urlencoded
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
 
 // Static
 app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads")));
