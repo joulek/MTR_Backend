@@ -2,11 +2,15 @@
 import Reclamation from "../models/reclamation.js";
 import { buildReclamationPDF } from "../utils/pdf.reclamation.js";
 import { makeTransport } from "../utils/mailer.js";
+import  auth  from "../middleware/auth.js";
 import mongoose from "mongoose";
 // petits helpers
 const toDate = (v) => (v ? new Date(v) : undefined);
 const toInt = (v) =>
   v === undefined || v === null || v === "" ? undefined : Number(v);
+
+
+
 
 export const createReclamation = async (req, res) => {
   try {
