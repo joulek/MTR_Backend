@@ -1,11 +1,7 @@
 // controllers/category.controller.js
-<<<<<<< HEAD
 import Category from "../models/category.js";
-=======
 import fs from "fs";
 import path from "path";
-import Category from "../models/Category.js";
->>>>>>> 8728c2ed36f15c081044f5ebdb2384dc94e1619c
 
 // -- Helpers fichiers --------------------------------------------------------
 const toPublicUrl = (file) => (file?.filename ? `/uploads/${file.filename}` : null);
