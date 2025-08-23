@@ -168,3 +168,17 @@ export const deleteProduct = async (req, res) => {
     res.status(500).json({ message: "Error deleting product", error: err.message });
   }
 };
+
+// ➕ GET /api/products/by-category/:categoryId
+export const getProductsByCategory = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    const prods = await Product.find({ category: categoryId })
+      .populate("category")
+      .sort({ createdAt: -1 });
+    res.json(prods);
+  } catch (err) {
+    console.error("getProductsByCategory ERROR:", err);
+    res.status(500).json({ message: "Error fetching products by category", error: err.message });
+  }
+};
