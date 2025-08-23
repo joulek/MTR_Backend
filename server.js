@@ -19,14 +19,12 @@ import devisAutreRoutes from "./routes/devisAutre.routes.js";
 import ProductRoutes from "./routes/product.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 import ArticleRoutes from "./routes/article.routes.js";
-import devisRoutes from "./routes/devis.routes.js";
 import reclamationRoutes from "./routes/reclamation.routes.js";           // (si routes supplémentaires
 import auth from "./middleware/auth.js";   
 import multer from "multer";                  // middleware d'authentification
-import RoutesDevis from "./routes/route.devis.js";
 import authRoutes from "./routes/auth.routes.js"; // Authentification (login, logout, etc.)
 import mesDemandesDevisRoutes from "./routes/mesDemandesDevis.js";
-
+import devisRoutes from "./routes/devis.routes.js";
 dotenv.config();
 
 
@@ -90,7 +88,6 @@ app.use("/api/devis", devisRoutes);
 app.use("/api/reclamations", auth, upload.array("piecesJointes"), reclamationRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/admin/users", userRoutes);
-app.use("/api/admin/devis", RoutesDevis);
 app.use("/api", mesDemandesDevisRoutes);
 
 // 404
