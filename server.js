@@ -25,6 +25,7 @@ import multer from "multer";                  // middleware d'authentification
 import authRoutes from "./routes/auth.routes.js"; // Authentification (login, logout, etc.)
 import mesDemandesDevisRoutes from "./routes/mesDemandesDevis.js";
 import devisRoutes from "./routes/devis.routes.js";
+import clientOrderRoutes from "./routes/client.order.routes.js";
 dotenv.config();
 
 
@@ -89,7 +90,7 @@ app.use("/api/reclamations", auth, upload.array("piecesJointes"), reclamationRou
 app.use("/api/users", userRoutes);
 app.use("/api/admin/users", userRoutes);
 app.use("/api", mesDemandesDevisRoutes);
-
+app.use("/api/order", clientOrderRoutes);
 // 404
 app.use((req, res) => res.status(404).json({ error: "Route not found" }));
 
