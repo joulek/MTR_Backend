@@ -89,6 +89,9 @@ const DEMANDE_MODELS = [
   { type: "autre",       Model: DemandeDevisAutre },
   { type: "compression", Model: DemandeDevisCompression },
   { type: "traction",    Model: DemandeDevisTraction },
+  { type: "torsion",     Model: DevisTorsion },
+  { type: "fil",   Model: DevisFilDresse },
+  { type: "grille",      Model: DevisGrille },
 ];
 
 export const getNextDevisNumberPreview = async (_req, res) => {

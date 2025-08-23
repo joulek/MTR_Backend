@@ -1,11 +1,22 @@
+// routes/devis.admin.routes.js
 import { Router } from "express";
-import { getAllDevisNumeros ,getNextDevisNumberPreview ,createFromDemande,getDevisByDemande} from "../controllers/devis.controller.js";
+import auth, { only } from "../middleware/auth.js";
+import {
+  getAllDevisNumeros,
+  getNextDevisNumberPreview,
+  createFromDemande,
+  getDevisByDemande,
+} from "../controllers/devis.controller.js";
 
 const router = Router();
+router.post("/admin/from-demande/:demandeId", auth, only("admin"), createFromDemande);
+router.get("/admin/next-number/preview", auth, only("admin"), getNextDevisNumberPreview);
 
-router.get("/", getAllDevisNumeros);     // liste tous les devis
-router.get("/admin/next-number", getNextDevisNumberPreview);
-router.post("/admin/from-demande/:demandeId", createFromDemande);
-// l’URL finale sera /api/admin/devis/by-demande/:demandeId
-router.get("/admin/by-demande/:demandeId", getDevisByDemande);
+// ✅ Endpoints attendus par le Front
+
+router.get("/admin/by-demande/:demandeId",  auth, only("admin"), getDevisByDemande);
+// Utilitaires numéros (optionnels mais utiles)
+router.get("/", getAllDevisNumeros);
+
+
 export default router;
