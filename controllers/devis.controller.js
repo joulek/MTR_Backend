@@ -45,25 +45,119 @@ const MODELS = [
  *   - limit=500        (défaut 500, max 5000)
  *   - withType=true    (retourne aussi { numero, type })
  */
+// controllers/devis.controller.js
+export const getDevisByDemandeClient = async (req, res) => {
+  try {
+    const { demandeId } = req.params;
+    const numero = (req.query.numero || "").toString().trim().toUpperCase();
+
+    // 1) retrouver la demande, avec user minimal
+    const found = await findDemandeAny(demandeId); // assure-toi que findDemandeAny fait: .populate("user", "_id email")
+    if (!found) {
+      return res.json({ success:false, exists:false });
+    }
+
+    // 2) contrôle d’accès (client propriétaire OU admin)
+    const ownerId = (found.doc?.user?._id || found.doc?.user)?.toString?.();
+    const userId  = (req.user?._id || req.user?.id)?.toString?.();
+    const isAdmin = req.user?.role === "admin";
+
+    if (!isAdmin) {
+      if (!ownerId || !userId || ownerId !== userId) {
+        // pas autorisé => on ne leak rien, mais pas de 403 pour le front
+        return res.json({ success:false, exists:false });
+      }
+    }
+
+    // 3) chercher le devis central lié à la demande
+    const or = [];
+    if (mongoose.isValidObjectId(demandeId)) {
+      or.push({ demandeId: new mongoose.Types.ObjectId(demandeId) });
+    }
+    if (numero) {
+      or.push({ demandeNumero: numero }, { "meta.demandeNumero": numero });
+    }
+
+    const devis = await Devis.findOne({ $or: or }).sort({ createdAt: -1 });
+    if (!devis) return res.json({ success:false, exists:false });
+
+    const filename = `${devis.numero}.pdf`;
+    const pdf = `${ORIGIN}/files/devis/${filename}`;
+
+    return res.json({
+      success: true,
+      exists: true,
+      devis: { _id: devis._id, numero: devis.numero },
+      pdf,
+    });
+  } catch (e) {
+    console.error("getDevisByDemandeClient:", e);
+    return res.status(500).json({ success:false, message:"Erreur serveur" });
+  }
+};
+
+
+
 export const getAllDevisNumeros = async (req, res) => {
   try {
     const { q, withType } = req.query;
     const limit = Math.min(parseInt(req.query.limit || "500", 10), 5000);
     const regex = q ? new RegExp(q, "i") : null;
 
-    // lance toutes les requêtes en parallèle
+    // 1) Récupérer toutes les DEMANDES (traction/compression/…)
     const results = await Promise.all(
       MODELS.map((M) =>
-        M.find(regex ? { numero: regex } : {}, "numero type").lean()
+        M.find(regex ? { numero: regex } : {}, "_id numero type").lean()
       )
     );
+    const all = results.flat();
 
-    // aplatis + dédoublonne par "numero"
+    // 2) Construire les listes pour croiser avec la collection Devis
+    const demandeIds = all.map((d) => d._id).filter(Boolean);
+    const numeros = all.map((d) => d.numero).filter(Boolean);
+
+    // 3) Chercher les devis déjà créés pour ces demandes
+    //    (principalement via demandeId ; fallback via numero/meta.demandeNumero)
+    let haveDevisSet = new Set();
+    if (demandeIds.length || numeros.length) {
+      const existing = await Devis.find(
+        {
+          $or: [
+            demandeIds.length ? { demandeId: { $in: demandeIds } } : null,
+            numeros.length ? { demandeNumero: { $in: numeros } } : null,
+            numeros.length ? { "meta.demandeNumero": { $in: numeros } } : null,
+          ].filter(Boolean),
+        },
+        "demandeId demandeNumero meta.demandeNumero"
+      ).lean();
+
+      // marquer comme "déjà avec devis" soit par id, soit par numéro
+      const doneIds = existing
+        .map((x) => x.demandeId)
+        .filter(Boolean)
+        .map(String);
+      const doneNumeros = new Set(
+        existing
+          .flatMap((x) => [x.demandeNumero, x?.meta?.demandeNumero])
+          .filter(Boolean)
+      );
+
+      haveDevisSet = new Set(doneIds);
+      // On filtrera aussi par numéro juste après
+      var hasDevisByNumero = (num) => doneNumeros.has(num);
+    } else {
+      var hasDevisByNumero = () => false;
+    }
+
+    // 4) Garder uniquement les demandes SANS devis
+    const notConverted = all.filter(
+      (d) => !haveDevisSet.has(String(d._id)) && !hasDevisByNumero(d.numero)
+    );
+
+    // 5) Dédupliquer par numéro puis trier/limiter
     const byNumero = new Map();
-    for (const arr of results) {
-      for (const d of arr) {
-        if (d?.numero && !byNumero.has(d.numero)) byNumero.set(d.numero, d);
-      }
+    for (const d of notConverted) {
+      if (d?.numero && !byNumero.has(d.numero)) byNumero.set(d.numero, d);
     }
 
     let data = Array.from(byNumero.values());
@@ -75,13 +169,16 @@ export const getAllDevisNumeros = async (req, res) => {
         ? data.map((d) => ({ numero: d.numero, type: d.type }))
         : data.map((d) => ({ numero: d.numero }));
 
-    console.log("[/devis/numeros-all] count:", payload.length);
+    console.log("[/devis/numeros-all] count (no-devis):", payload.length);
     return res.json({ success: true, data: payload });
   } catch (err) {
     console.error("Erreur getAllDevisNumeros:", err);
-    return res.status(500).json({ success: false, message: "Erreur serveur" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Erreur serveur" });
   }
 };
+
 
 // ========  B) CRÉATION ET RÉCUP D’UN DEVIS (depuis une demande)  ========
 

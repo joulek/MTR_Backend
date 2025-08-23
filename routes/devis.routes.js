@@ -6,9 +6,11 @@ import {
   getNextDevisNumberPreview,
   createFromDemande,
   getDevisByDemande,
+  getDevisByDemandeClient
 } from "../controllers/devis.controller.js";
 
 const router = Router();
+router.get("/client/by-demande/:demandeId", auth, getDevisByDemandeClient);
 router.post("/admin/from-demande/:demandeId", auth, only("admin"), createFromDemande);
 router.get("/admin/next-number/preview", auth, only("admin"), getNextDevisNumberPreview);
 
