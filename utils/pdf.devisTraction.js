@@ -141,43 +141,77 @@ export function buildDevisTractionPDF(devis = {}) {
   y = metaTop + 34;
 
   /* ===== 1) Client ===== */
-  y = section("Client", y);
+  /* ===== 1) Client ===== */
+y = section("Client", y);
 
-  const user = devis?.user || {};
-  const client = {
-    nom: get(user, ["nom", "lastName", "name.last", "fullname"]),
-    prenom: get(user, ["prenom", "firstName", "name.first"]),
-    email: get(user, ["email"]),
-    tel: get(user, ["numTel", "telephone", "phone", "tel"]),
-    adresse: get(user, ["adresse", "address", "location.address"]),
-  };
+const u = devis?.user || {};
+const client = {
+  nom:     get(u, ["nom", "lastName", "name.last", "fullname"]),
+  prenom:  get(u, ["prenom", "firstName", "name.first"]),
+  email:   get(u, ["email"]),
+  tel:     get(u, ["numTel", "telephone", "phone", "tel"]),
+  adresse: get(u, ["adresse", "address", "location.address"]),
+};
 
-  const clientPairs = [];
-  clientPairs.push(["Nom", sanitize([client.prenom, client.nom].filter(Boolean).join(" "))]);
-  clientPairs.push(["Email", sanitize(client.email)]);
-  clientPairs.push(["Tél.", sanitize(client.tel)]);
-  clientPairs.push(["Adresse", sanitize(client.adresse)]);
+const accountType = (get(u, ["accountType"]) || "").toLowerCase();
+const role        = get(u, ["role"]);
 
-  const rowHClient = 18, labelW = 105;
-  const clientBoxH = rowHClient * clientPairs.length + 8;
-  ensureSpace(clientBoxH + 12);
-  doc.rect(LEFT, y, INNER_W, clientBoxH).strokeColor(BORDER).stroke();
+const cin        = get(u, ["personal.cin"]);
+const postePers  = get(u, ["personal.posteActuel"]);
 
-  let cy = y + 6;
-  clientPairs.forEach(([k, v]) => {
-    fitOneLine({ text: k, x: LEFT + 8, y: cy, width: labelW, bold: true, maxSize: 10, minSize: 8 });
-    fitOneLine({
-      text: v,
-      x: LEFT + 8 + labelW + 6,
-      y: cy,
-      width: INNER_W - (labelW + 26),
-      bold: false,
-      maxSize: 10,
-      minSize: 8,
-    });
-    cy += rowHClient;
-  });
-  y += clientBoxH + 14;
+const mf         = get(u, ["company.matriculeFiscal"]);
+const nomSociete = get(u, ["company.nomSociete"]);
+const posteSoc   = get(u, ["company.posteActuel"]);
+
+const accountLabel =
+  accountType === "societe"   ? "Société"   :
+  accountType === "personnel" ? "Personnel" : (accountType || "");
+
+const clientPairs = [];
+const pushPair = (k, v) => { if (hasText(v)) clientPairs.push([k, sanitize(v)]); };
+
+// Nom complet (fallback si user est string/ObjectId)
+const nomComplet =
+  [client.prenom, client.nom].filter(Boolean).join(" ") ||
+  (typeof u === "string" ? String(u) : safe(u?._id));
+
+// Identité + méta
+pushPair("Nom", nomComplet);
+pushPair("Type de compte", accountLabel);
+pushPair("Rôle", role);
+
+// Société (si présent)
+if (accountType === "societe" || hasText(nomSociete) || hasText(mf) || hasText(posteSoc)) {
+  pushPair("Raison sociale", nomSociete);
+  pushPair("Matricule fiscal", mf);
+  pushPair("Poste (société)", posteSoc);
+}
+
+// Personnel (si présent)
+if (accountType === "personnel" || hasText(cin) || hasText(postePers)) {
+  pushPair("CIN", cin);
+  pushPair("Poste (personnel)", postePers);
+}
+
+// Contacts
+pushPair("Email", client.email);
+pushPair("Tél.", client.tel);
+pushPair("Adresse", client.adresse);
+
+const rowHClient = 18, labelW = 120; // libellés longs OK
+const clientBoxH = rowHClient * clientPairs.length + 8;
+ensureSpace(clientBoxH + 12);
+
+doc.rect(LEFT, y, INNER_W, clientBoxH).strokeColor(BORDER).stroke();
+
+let cy = y + 6;
+clientPairs.forEach(([k, v]) => {
+  fitOneLine({ text: k, x: LEFT + 8, y: cy, width: labelW, bold: true, maxSize: 10, minSize: 8 });
+  fitOneLine({ text: v, x: LEFT + 8 + labelW + 6, y: cy, width: INNER_W - (labelW + 26), maxSize: 10, minSize: 8 });
+  cy += rowHClient;
+});
+y += clientBoxH + 14;
+
 
   /* ===== 2) Schéma (2 en haut + 1 centrée en bas si 3 images) ===== */
   const imgPaths = [

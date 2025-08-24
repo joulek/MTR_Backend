@@ -8,11 +8,6 @@ import path from "path";
  * PDF "Ressorts de Compression"
  * Ordre: En-tête → Client → Schéma (2 images côte à côte) → Spécifications principales
  *        → [Exigences + Remarques regroupées s'ils existent]
- * - Logo haut-gauche
- * - Titre sur 2 lignes CENTRÉES : "Demande de devis" puis "Ressorts de Compression"
- * - N° au-dessus de la date (alignés à droite)
- * - Les titres/blocks ne se séparent jamais entre deux pages
- * - Spécifications: libellés et valeurs sur UNE SEULE LIGNE (réduction auto de la police si besoin)
  */
 export function buildDevisCompressionPDF(devis = {}) {
   const doc = new PDFDocument({ size: "A4", margin: 40 });
@@ -34,6 +29,18 @@ export function buildDevisCompressionPDF(devis = {}) {
 
   const safe = (v) =>
     v === null || v === undefined || String(v).trim() === "" ? "—" : String(v).trim();
+  const hasText  = (v) => v !== null && v !== undefined && String(v).trim() !== "";
+  const sanitize = (v) => safe(v).replace(/\s*\n+\s*/g, " ");
+  const get = (obj, paths = []) => {
+    for (const p of paths) {
+      const v = p.split(".").reduce((a, k) => (a && a[k] !== undefined ? a[k] : undefined), obj);
+      if (v === undefined || v === null) continue;
+      if (typeof v === "object") continue; // évite [object Object]
+      const s = String(v).trim();
+      if (s) return s;
+    }
+    return "";
+  };
 
   const tryImage = (paths = []) => {
     for (const p of paths) {
@@ -45,16 +52,9 @@ export function buildDevisCompressionPDF(devis = {}) {
     return null;
   };
 
-  // Fit one-line helper: shrink font size (down to minSize) until it fits in `width`.
-  // Keeps text on a single line (lineBreak:false).
+  // Libellé mono-ligne (police auto-réduite)
   const fitOneLine = ({
-    text,
-    x,
-    y,
-    width,
-    bold = false,
-    maxSize = 10,
-    minSize = 8,
+    text, x, y, width, bold = false, maxSize = 10, minSize = 8,
   }) => {
     const fontName = bold ? "Helvetica-Bold" : "Helvetica";
     let size = maxSize;
@@ -63,7 +63,7 @@ export function buildDevisCompressionPDF(devis = {}) {
       doc.fontSize(size);
       const w = doc.widthOfString(text);
       if (w <= width) break;
-      size -= 0.5; // shrink step
+      size -= 0.5;
     }
     doc.fontSize(size).text(text, x, y, { width, lineBreak: false, align: "left" });
     return size;
@@ -72,12 +72,7 @@ export function buildDevisCompressionPDF(devis = {}) {
   let y = TOP;
 
   const rule = (yy = y, color = BORDER) => {
-    doc
-      .moveTo(LEFT, yy)
-      .lineTo(RIGHT, yy)
-      .strokeColor(color)
-      .lineWidth(1)
-      .stroke();
+    doc.moveTo(LEFT, yy).lineTo(RIGHT, yy).strokeColor(color).lineWidth(1).stroke();
   };
 
   const section = (label, yy = y, x = LEFT, w = INNER_W) => {
@@ -104,83 +99,100 @@ export function buildDevisCompressionPDF(devis = {}) {
 
   /* ===== En-tête ===== */
   const logoPath = tryImage(["assets/logo.png"]);
-  const logoW = 120,
-    logoHMax = 60;
+  const logoW = 120, logoHMax = 60;
   if (logoPath) doc.image(logoPath, LEFT, y - 8, { fit: [logoW, logoHMax] });
 
-  // --- Titre sur 2 lignes CENTRÉES ---
+  // Titre centré sur 2 lignes
   const titleTop = y + 4;
-  doc
-    .fillColor(TXT)
-    .font("Helvetica-Bold")
-    .fontSize(18)
-    .text("Demande de devis", LEFT, titleTop, { width: INNER_W, align: "center" });
+  doc.fillColor(TXT).font("Helvetica-Bold").fontSize(18)
+     .text("Demande de devis", LEFT, titleTop, { width: INNER_W, align: "center" });
+  doc.font("Helvetica-Bold").fontSize(20)
+     .text("Ressorts de Compression", LEFT, titleTop + 22, { width: INNER_W, align: "center" });
 
-  doc
-    .font("Helvetica-Bold")
-    .fontSize(20)
-    .text("Ressorts de Compression", LEFT, titleTop + 22, {
-      width: INNER_W,
-      align: "center",
-    });
-
-  // Méta (N° et Date) alignées à droite, placées sous le titre
-  const metaTop =
-    titleTop + 22 + doc.heightOfString("Ressorts de Compression", { width: INNER_W }) + 6;
-
+  // Méta à droite
+  const metaTop = titleTop + 22 + doc.heightOfString("Ressorts de Compression", { width: INNER_W }) + 6;
   const numero = devis?.numero ? `N° : ${devis.numero}` : devis?._id ? `ID : ${devis._id}` : "";
-  doc
-    .font("Helvetica")
-    .fontSize(10)
-    .fillColor(TXT)
-    .text(numero, LEFT, metaTop, { width: INNER_W, align: "right" })
-    .text(
-      `Date : ${dayjs(devis?.createdAt || Date.now()).format("DD/MM/YYYY HH:mm")}`,
-      LEFT,
-      metaTop + 16,
-      { width: INNER_W, align: "right" }
-    );
+  doc.font("Helvetica").fontSize(10).fillColor(TXT)
+     .text(numero, LEFT, metaTop, { width: INNER_W, align: "right" })
+     .text(`Date : ${dayjs(devis?.createdAt || Date.now()).format("DD/MM/YYYY HH:mm")}`,
+           LEFT, metaTop + 16, { width: INNER_W, align: "right" });
 
   rule(metaTop + 28);
   y = metaTop + 38;
 
-  /* ===== 1) Client ===== */
-  y = section("Client", y);
+  /* ===== Prépare user/client ===== */
   const u = devis?.user || {};
-  const pairs = [
-    ["Nom", typeof u === "string" ? u : [u.prenom, u.nom].filter(Boolean).join(" ") || safe(u._id)],
-    ["Email", safe(u.email)],
-    ["Tél.", safe(u.numTel)],
-    ["Adresse", safe(u.adresse)],
-  ];
-  const rowHClient = 20,
-    labelW = 70;
+  const client = {
+    nom:     get(u, ["nom", "lastName", "name.last", "fullname"]),
+    prenom:  get(u, ["prenom", "firstName", "name.first"]),
+    email:   get(u, ["email"]),
+    tel:     get(u, ["numTel", "telephone", "phone", "tel"]),
+    adresse: get(u, ["adresse", "address", "location.address"]),
+  };
 
-  ensureSpace(rowHClient * pairs.length + 14);
-  doc.rect(LEFT, y, INNER_W, rowHClient * pairs.length + 8).strokeColor(BORDER).stroke();
+  /* ===== Client (toutes infos) ===== */
+  y = section("Client", y);
+
+  const accountType = (get(u, ["accountType"]) || "").toLowerCase();
+  const role        = get(u, ["role"]);
+
+  const cin        = get(u, ["personal.cin"]);
+  const postePers  = get(u, ["personal.posteActuel"]);
+
+  const mf         = get(u, ["company.matriculeFiscal"]);
+  const nomSociete = get(u, ["company.nomSociete"]);
+  const posteSoc   = get(u, ["company.posteActuel"]);
+
+  const accountLabel =
+    accountType === "societe"   ? "Société"   :
+    accountType === "personnel" ? "Personnel" : (accountType || "");
+
+  const clientPairs = [];
+  const pushPair = (k, v) => { if (hasText(v)) clientPairs.push([k, sanitize(v)]); };
+
+  // Identité + méta
+  const nomComplet = [client.prenom, client.nom].filter(Boolean).join(" ")
+                  || (typeof u === "string" ? String(u) : safe(u?._id));
+  pushPair("Nom", nomComplet);
+  pushPair("Type de compte", accountLabel);
+  pushPair("Rôle", role);
+
+  // Partie société (si présente)
+  if (accountType === "societe" || hasText(nomSociete) || hasText(mf) || hasText(posteSoc)) {
+    pushPair("Raison sociale", nomSociete);
+    pushPair("Matricule fiscal", mf);
+    pushPair("Poste (société)", posteSoc);
+  }
+
+  // Partie personnelle (si présente)
+  if (accountType === "personnel" || hasText(cin) || hasText(postePers)) {
+    pushPair("CIN", cin);
+    pushPair("Poste (personnel)", postePers);
+  }
+
+  // Contacts
+  pushPair("Email", client.email);
+  pushPair("Tél.", client.tel);
+  pushPair("Adresse", client.adresse);
+
+  const rowHClient = 18, labelW = 120;
+  const clientBoxH = rowHClient * clientPairs.length + 8;
+  ensureSpace(clientBoxH + 12);
+  doc.rect(LEFT, y, INNER_W, clientBoxH).strokeColor(BORDER).stroke();
+
   let cy = y + 6;
-  pairs.forEach(([k, v]) => {
+  clientPairs.forEach(([k, v]) => {
     fitOneLine({ text: k, x: LEFT + 8, y: cy, width: labelW, bold: true, maxSize: 10, minSize: 8 });
-    fitOneLine({
-      text: v,
-      x: LEFT + 8 + labelW + 6,
-      y: cy,
-      width: INNER_W - (labelW + 26),
-      bold: false,
-      maxSize: 10,
-      minSize: 8,
-    });
+    fitOneLine({ text: v, x: LEFT + 8 + labelW + 6, y: cy, width: INNER_W - (labelW + 26), maxSize: 10, minSize: 8 });
     cy += rowHClient;
   });
-  y = y + rowHClient * pairs.length + 18;
+  y += clientBoxH + 14;
 
-  /* ===== 2) Schéma (deux images côte à côte) ===== */
+  /* ===== Schéma ===== */
   const imgExtr = tryImage(["assets/compression02.png"]); // extrémités
-  const imgDim = tryImage(["assets/compression01.png"]); // dimensions
-
+  const imgDim  = tryImage(["assets/compression01.png"]); // dimensions
   if (imgExtr || imgDim) {
     y = section("Schéma", y);
-
     const gap = 18;
     const colW = Math.floor((INNER_W - gap) / 2);
     const leftW = Math.min(colW, 360);
@@ -188,17 +200,17 @@ export function buildDevisCompressionPDF(devis = {}) {
 
     ensureSpace(Math.max(leftW * 0.62, rightW * 0.62) + 30);
 
-    if (imgExtr) doc.image(imgExtr, LEFT, y + 10, { width: leftW });
-    if (imgDim) doc.image(imgDim, LEFT + colW + gap, y + 10, { width: rightW });
+    if (imgExtr) doc.image(imgExtr, LEFT, y + 10,  { width: leftW });
+    if (imgDim)  doc.image(imgDim,  LEFT + colW + gap, y + 10, { width: rightW });
 
     const bottom = Math.max(
       imgExtr ? y + 10 + leftW * 0.62 : y,
-      imgDim ? y + 10 + rightW * 0.62 : y
+      imgDim  ? y + 10 + rightW * 0.62 : y
     );
     y = bottom + 16;
   }
 
-  /* ===== 3) Spécifications principales ===== */
+  /* ===== Spécifications principales ===== */
   y = section("Spécifications principales", y);
   const s = devis?.spec || {};
   const rows = [
@@ -210,19 +222,14 @@ export function buildDevisCompressionPDF(devis = {}) {
     ["Sens d’enroulement", s.enroulement, "Type d’extrémité du ressort", s.extremite],
   ];
 
-  // Plus d'espace utile + pas de wrap: réduction automatique de police si nécessaire
-  const rowH = 30; // un peu plus haut
+  const rowH = 30;
   const halfW = Math.floor(INNER_W / 2);
-  const padX = 6; // padding interne réduit pour gagner en largeur utile
+  const padX = 6;
 
-  // On veut des labels/valeurs en une ligne:
-  // - On garde deux demi-colonnes (gauche/droite)
-  // - LabelWidth plutôt généreux mais on ajuste la police si besoin
-  // - ValueWidth aussi, avec fitOneLine
-  const labLW = 180; // largeur label (gauche)
-  const labRW = 200; // largeur label (droite)
-  const valLW = halfW - (labLW + padX * 3); // largeur valeur (gauche)
-  const valRW = halfW - (labRW + padX * 3); // largeur valeur (droite)
+  const labLW = 180;
+  const labRW = 200;
+  const valLW = halfW - (labLW + padX * 3);
+  const valRW = halfW - (labRW + padX * 3);
 
   const tableTop = y;
   const tableH = rowH * rows.length;
@@ -233,58 +240,19 @@ export function buildDevisCompressionPDF(devis = {}) {
     const yy = tableTop + i * rowH;
     if (i % 2 === 0) doc.save().fillColor(LIGHT).rect(LEFT, yy, INNER_W, rowH).fill().restore();
 
-    // lignes séparatrices
     doc.moveTo(LEFT, yy).lineTo(RIGHT, yy).strokeColor(BORDER).stroke();
     doc.moveTo(LEFT + halfW, yy).lineTo(LEFT + halfW, yy + rowH).strokeColor(BORDER).stroke();
 
-    // Gauche: label + valeur
-    fitOneLine({
-      text: r[0],
-      x: LEFT + padX,
-      y: yy + 7,
-      width: labLW,
-      bold: true,
-      maxSize: 11,
-      minSize: 8,
-    });
-    fitOneLine({
-      text: safe(r[1]),
-      x: LEFT + padX + labLW + padX,
-      y: yy + 7,
-      width: valLW,
-      bold: false,
-      maxSize: 11,
-      minSize: 7.5,
-    });
+    fitOneLine({ text: r[0], x: LEFT + padX, y: yy + 7, width: labLW, bold: true, maxSize: 11, minSize: 8 });
+    fitOneLine({ text: safe(r[1]), x: LEFT + padX + labLW + padX, y: yy + 7, width: valLW, maxSize: 11, minSize: 7.5 });
 
-    // Droite: label + valeur
-    fitOneLine({
-      text: r[2],
-      x: LEFT + halfW + padX,
-      y: yy + 7,
-      width: labRW,
-      bold: true,
-      maxSize: 11,
-      minSize: 8,
-    });
-    fitOneLine({
-      text: safe(r[3]),
-      x: LEFT + halfW + padX + labRW + padX,
-      y: yy + 7,
-      width: valRW,
-      bold: false,
-      maxSize: 11,
-      minSize: 7.5,
-    });
+    fitOneLine({ text: r[2], x: LEFT + halfW + padX, y: yy + 7, width: labRW, bold: true, maxSize: 11, minSize: 8 });
+    fitOneLine({ text: safe(r[3]), x: LEFT + halfW + padX + labRW + padX, y: yy + 7, width: valRW, maxSize: 11, minSize: 7.5 });
   });
-  doc
-    .moveTo(LEFT, tableTop + tableH)
-    .lineTo(RIGHT, tableTop + tableH)
-    .strokeColor(BORDER)
-    .stroke();
+  doc.moveTo(LEFT, tableTop + tableH).lineTo(RIGHT, tableTop + tableH).strokeColor(BORDER).stroke();
   y = tableTop + tableH + 14;
 
-  /* ===== 4) Bloc Exigences + Remarques (groupés sur la même page) ===== */
+  /* ===== Exigences + Remarques ===== */
   const blocks = [];
   if (devis?.exigences && String(devis.exigences).trim()) {
     const text = String(devis.exigences).trim();
@@ -316,14 +284,10 @@ export function buildDevisCompressionPDF(devis = {}) {
   /* ===== Pied ===== */
   ensureSpace(40);
   rule(BOTTOM - 56);
-  doc
-    .font("Helvetica")
-    .fontSize(8)
-    .fillColor("#666")
-    .text("Document généré automatiquement — MTR Industry", LEFT, BOTTOM - 48, {
-      width: INNER_W,
-      align: "center",
-    });
+  doc.font("Helvetica").fontSize(8).fillColor("#666")
+     .text("Document généré automatiquement — MTR Industry", LEFT, BOTTOM - 48, {
+       width: INNER_W, align: "center",
+     });
 
   doc.end();
   return new Promise((resolve) => doc.on("end", () => resolve(Buffer.concat(chunks))));

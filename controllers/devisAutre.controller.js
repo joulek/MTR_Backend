@@ -13,10 +13,34 @@ export const createDevisAutre = async (req, res) => {
       return res.status(401).json({ success: false, message: "Utilisateur non authentifié" });
     }
 
-    const { titre, description, exigences, remarques } = req.body;
+    // 🔹 Nouveaux champs du formulaire + compat avec l'ancien (titre/description)
+    const {
+      titre,                // compat historique
+      description,          // compat historique
+      designation,          // "Désignation / Référence *"
+      dimensions,           // "Dimensions principales"
+      quantite,             // "Quantité *"
+      matiere,              // "Matière *"
+      exigences,
+      remarques
+    } = req.body;
 
-    const spec = { titre, description };
+    // Coercitions légères (on ne modifie pas la logique de validation globale)
+    const qte = quantite !== undefined ? Number(quantite) : undefined;
 
+    // 🔹 spec enrichi (on garde titre/description pour compatibilité)
+    const spec = {
+      // compat champs legacy
+      titre: titre || designation || "",
+      description: description || req.body?.["description"] || "",
+      // nouveaux champs
+      designation: designation || titre || "",
+      dimensions: dimensions || "",
+      quantite: Number.isFinite(qte) ? qte : undefined,
+      matiere: (matiere || "").toString()
+    };
+
+    // Fichiers envoyés via multer
     const documents = (req.files || []).map(f => ({
       filename: f.originalname,
       mimetype: f.mimetype,
@@ -96,13 +120,13 @@ export const createDevisAutre = async (req, res) => {
           total += buf.length;
         }
 
-        // Préparer corps du mail
+        // Infos client
         const transporter = makeTransport();
         const fullName = [full.user?.prenom, full.user?.nom].filter(Boolean).join(" ") || "Client";
         const clientEmail = full.user?.email || "-";
         const clientTel = full.user?.numTel || "-";
         const clientAdr = full.user?.adresse || "-";
-        const clientType = full.user?.accountType || "-"; // ✅ Ajout type de compte
+        const clientType = full.user?.accountType || "-";
 
         const human = (n = 0) => {
           const u = ["B", "KB", "MB", "GB"];
@@ -116,6 +140,16 @@ export const createDevisAutre = async (req, res) => {
             .map(a => `- ${a.filename} (${human(a.content.length)})`)
             .join("\n") || "(aucun document client)";
 
+        // 🔹 Petit récap des champs spec dans l'email
+        const specBlockTxt = `
+Détails article
+- Référence: ${full.spec?.designation || full.spec?.titre || "-"}
+- Dimensions: ${full.spec?.dimensions || "-"}
+- Quantité: ${full.spec?.quantite ?? "-"}
+- Matière: ${full.spec?.matiere || "-"}
+- Description: ${(full.spec?.description || "").trim() || "-"}
+`.trim();
+
         const textBody = `Nouvelle demande de devis – Autre Type
 
 Numéro: ${full.numero}
@@ -127,6 +161,8 @@ Infos client
 - Téléphone: ${clientTel}
 - Adresse: ${clientAdr}
 - Type de compte: ${clientType}
+
+${specBlockTxt}
 
 Pièces jointes:
 - PDF de la demande: devis-autre-${full._id}.pdf (${human(pdfBuffer.length)})
@@ -140,6 +176,7 @@ ${docsList}
   <li><b>Numéro:</b> ${full.numero}</li>
   <li><b>Date:</b> ${new Date(full.createdAt).toLocaleString()}</li>
 </ul>
+
 <h3>Infos client</h3>
 <ul>
   <li><b>Nom:</b> ${fullName}</li>
@@ -148,10 +185,21 @@ ${docsList}
   <li><b>Adresse:</b> ${clientAdr}</li>
   <li><b>Type de compte:</b> ${clientType}</li>
 </ul>
+
+<h3>Détails article</h3>
+<ul>
+  <li><b>Référence:</b> ${full.spec?.designation || full.spec?.titre || "-"}</li>
+  <li><b>Dimensions:</b> ${full.spec?.dimensions || "-"}</li>
+  <li><b>Quantité:</b> ${full.spec?.quantite ?? "-"}</li>
+  <li><b>Matière:</b> ${full.spec?.matiere || "-"}</li>
+  <li><b>Description:</b> ${(full.spec?.description || "").trim() || "-"}</li>
+</ul>
+
 <h3>Pièces jointes</h3>
 <ul>
   <li>PDF de la demande: <code>devis-autre-${full._id}.pdf</code> (${human(pdfBuffer.length)})</li>
 </ul>
+
 <h3>Documents client</h3>
 <pre>${docsList}</pre>
 `;
@@ -160,7 +208,7 @@ ${docsList}
           from: process.env.SMTP_USER,
           to: process.env.ADMIN_EMAIL,
           replyTo: clientEmail !== "-" ? clientEmail : undefined,
-          subject: `${fullName} - ${full.numero}`, 
+          subject: `${fullName} - ${full.numero}`,
           text: textBody,
           html: htmlBody,
           attachments,

@@ -23,7 +23,7 @@ export function buildDevisAutrePDF(devis = {}) {
   const BOTTOM  = doc.page.height - doc.page.margins.bottom;
   const INNER_W = RIGHT - LEFT;
 
-  const PRODUCT_LABEL = "Autre article";
+  const PRODUCT_LABEL = "Autre Type ";
 
   /* ===== Helpers ===== */
   const safe = (v, dash = "—") =>
@@ -132,35 +132,69 @@ export function buildDevisAutrePDF(devis = {}) {
 
   rule(metaTop + 24);
   y = metaTop + 34;
+/* ===== Client ===== */
+y = section("Client", y);
 
-  /* ===== Client ===== */
-  y = section("Client", y);
+// Champs user supplémentaires
+const accountType = (get(user, ["accountType"]) || "").toLowerCase();
+const role        = get(user, ["role"]);
 
-  const clientPairs = [
-    ["Nom", sanitize([client.prenom, client.nom].filter(Boolean).join(" "))],
-    ["Email", sanitize(client.email)],
-    ["Tél.", sanitize(client.tel)],
-    ["Adresse", sanitize(client.adresse)],
-  ];
+const cin             = get(user, ["personal.cin"]);
+const postePers       = get(user, ["personal.posteActuel"]);
 
-  const rowHClient = 18, labelW = 105;
-  const clientBoxH = rowHClient * clientPairs.length + 8;
-  ensureSpace(clientBoxH + 12);
-  doc.rect(LEFT, y, INNER_W, clientBoxH).strokeColor(BORDER).stroke();
+const mf              = get(user, ["company.matriculeFiscal"]);
+const nomSociete      = get(user, ["company.nomSociete"]);
+const posteSoc        = get(user, ["company.posteActuel"]);
 
-  let cy = y + 6;
-  clientPairs.forEach(([k, v]) => {
-    fitOneLine({ text: k, x: LEFT + 8, y: cy, width: labelW, bold: true, maxSize: 10, minSize: 8 });
-    fitOneLine({ text: v, x: LEFT + 8 + labelW + 6, y: cy, width: INNER_W - (labelW + 26), maxSize: 10, minSize: 8 });
-    cy += rowHClient;
-  });
-  y += clientBoxH + 14;
+const accountLabel =
+  accountType === "societe"   ? "Société"   :
+  accountType === "personnel" ? "Personnel" : (accountType || "");
+
+// Liste dynamique des paires (label, valeur)
+const clientPairs = [];
+const pushPair = (k, v) => { if (hasText(v)) clientPairs.push([k, sanitize(v)]); };
+
+// Identité + méta
+pushPair("Nom", [client.prenom, client.nom].filter(Boolean).join(" "));
+pushPair("Type de compte", accountLabel);
+pushPair("Rôle", role);
+
+// Bloc entreprise (si présent)
+if (accountType === "societe" || hasText(nomSociete) || hasText(mf) || hasText(posteSoc)) {
+  pushPair("Raison sociale", nomSociete);
+  pushPair("Matricule fiscal", mf);
+  pushPair("Poste (société)", posteSoc);
+}
+
+// Bloc personnel (si présent)
+if (accountType === "personnel" || hasText(cin) || hasText(postePers)) {
+  pushPair("CIN", cin);
+  pushPair("Poste (personnel)", postePers);
+}
+
+// Contacts
+pushPair("Email", client.email);
+pushPair("Tél.", client.tel);
+pushPair("Adresse", client.adresse);
+
+const rowHClient = 18, labelW = 120; // un peu plus large pour les libellés longs
+const clientBoxH = rowHClient * clientPairs.length + 8;
+ensureSpace(clientBoxH + 12);
+
+doc.rect(LEFT, y, INNER_W, clientBoxH).strokeColor(BORDER).stroke();
+
+let cy = y + 6;
+clientPairs.forEach(([k, v]) => {
+  fitOneLine({ text: k, x: LEFT + 8, y: cy, width: labelW, bold: true, maxSize: 10, minSize: 8 });
+  fitOneLine({ text: v, x: LEFT + 8 + labelW + 6, y: cy, width: INNER_W - (labelW + 26), maxSize: 10, minSize: 8 });
+  cy += rowHClient;
+});
+y += clientBoxH + 14;
+
 
   /* ===== Spécifications (table bi-colonne) ===== */
   const pairs = [];
   const pushIf = (label, value) => { if (hasText(value)) pairs.push([label, sanitize(value)]); };
-
-  pushIf("Type", type || "autre");
   // Champs issus du formulaire "Autre article"
   pushIf("Désignation / Référence", spec.titre || spec.designation);
   pushIf("Dimensions principales", spec.dimensions || spec.dim || spec.dimension);
@@ -168,7 +202,6 @@ export function buildDevisAutrePDF(devis = {}) {
   pushIf("Matière", spec.matiere);
 
   // compléter avec l’intitulé générique
-  pushIf("Type de produit", PRODUCT_LABEL);
 
   // Passage en lignes de 2 colonnes
   const rows = [];
@@ -245,20 +278,4 @@ export function buildDevisAutrePDF(devis = {}) {
       doc.font("Helvetica").fontSize(10).fillColor(TXT).text(b.text, LEFT + 10, y + 8, { width: INNER_W - 20 });
       y += b.h + 10;
     }
-  }
-
-  /* ===== Pied ===== */
-  if (y + 48 > BOTTOM) { doc.addPage(); y = TOP; }
-  rule(BOTTOM - 54);
-  doc
-    .font("Helvetica")
-    .fontSize(8)
-    .fillColor("#666")
-    .text("Document généré automatiquement — MTR Industry", LEFT, BOTTOM - 46, {
-      width: INNER_W,
-      align: "center",
-    });
-
-  doc.end();
-  return new Promise((resolve) => doc.on("end", () => resolve(Buffer.concat(chunks))));
-}
+  }}
