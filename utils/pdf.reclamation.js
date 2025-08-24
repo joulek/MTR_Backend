@@ -17,11 +17,10 @@ export async function buildReclamationPDF(rec) {
       const BORDER = "#C8C8D8";
 
       const PAGE_LEFT  = 40;
-      const TABLE_W    = 515;
+      const TABLE_W    = 515; // largeur utile
       const PAGE_RIGHT = PAGE_LEFT + TABLE_W;
 
-      const GUTTER_X     = 28;   // espace horizontal entre Client & Commande
-      const CARD_SPACE_Y = 28;   // espace vertical entre cartes
+      const CARD_SPACE_Y = 28; // espace vertical entre les cartes
 
       const safe = (s = "") => String(s || "—");
       const dateStr = dayjs(rec?.createdAt || Date.now()).format("DD/MM/YYYY HH:mm:ss");
@@ -64,7 +63,7 @@ export async function buildReclamationPDF(rec) {
       doc.font("Helvetica-Bold").fontSize(18).fillColor("#000")
         .text("Réclamation client", 0, topY + 6, { align: "center" });
 
-      // Réf & Date descendus sous le titre
+      // Réf & Date
       const metaX = PAGE_RIGHT - 220;
       const metaY = topY + 42;
       doc.font("Helvetica").fontSize(10).fillColor("#000")
@@ -73,17 +72,13 @@ export async function buildReclamationPDF(rec) {
         .font("Helvetica").text("Date :", metaX, metaY + 16)
         .font("Helvetica-Bold").text(dateStr, metaX + 30, metaY + 16);
 
-      /* ---------------- Client & Commande ---------------- */
+      /* ---------------- Client (PLEINE LARGEUR) ---------------- */
       const blockTop = topY + 90;
-      const colW = (TABLE_W - GUTTER_X) / 2;
 
-      const CLIENT_H = 120;
-      const CMD_H    = 140;
-
-      // Client
-      const clientTitleBottom = drawSectionTitle("Client", PAGE_LEFT, blockTop, colW);
-      const clientRectY = clientTitleBottom;
-      doc.rect(PAGE_LEFT, clientRectY, colW, CLIENT_H).strokeColor(BORDER).stroke();
+      const CLIENT_H = 120; // tu peux augmenter si besoin
+      let nextY = drawSectionTitle("Client", PAGE_LEFT, blockTop, TABLE_W);
+      const clientRectY = nextY;
+      doc.rect(PAGE_LEFT, clientRectY, TABLE_W, CLIENT_H).strokeColor(BORDER).stroke();
       drawKeyValue(
         [
           ["Nom", `${safe(u.prenom)} ${safe(u.nom)}`.trim()],
@@ -93,14 +88,16 @@ export async function buildReclamationPDF(rec) {
         ],
         PAGE_LEFT + 10,
         clientRectY + 8,
-        colW - 20
+        TABLE_W - 20
       );
 
-      // Commande
-      const cmdX = PAGE_LEFT + colW + GUTTER_X;
-      const cmdTitleBottom = drawSectionTitle("Commande", cmdX, blockTop, colW);
+      /* ---------------- Commande (PLEINE LARGEUR, SOUS CLIENT) ---------------- */
+      const CMD_H = 140;
+      nextY = clientRectY + CLIENT_H + CARD_SPACE_Y;
+
+      const cmdTitleBottom = drawSectionTitle("Commande", PAGE_LEFT, nextY, TABLE_W);
       const cmdRectY = cmdTitleBottom;
-      doc.rect(cmdX, cmdRectY, colW, CMD_H).strokeColor(BORDER).stroke();
+      doc.rect(PAGE_LEFT, cmdRectY, TABLE_W, CMD_H).strokeColor(BORDER).stroke();
       drawKeyValue(
         [
           ["Type doc",  safe(c.typeDoc)],
@@ -109,13 +106,13 @@ export async function buildReclamationPDF(rec) {
           ["Réf prod.", safe(c.referenceProduit)],
           ["Quantité",  String(c.quantite ?? "—")],
         ],
-        cmdX + 10,
+        PAGE_LEFT + 10,
         cmdRectY + 8,
-        colW - 20
+        TABLE_W - 20
       );
 
-      // Position suivante = bas des deux cartes + espacement vertical
-      const afterBlocksY = Math.max(clientRectY + CLIENT_H, cmdRectY + CMD_H) + CARD_SPACE_Y;
+      // Position après les deux blocs verticaux
+      const afterBlocksY = cmdRectY + CMD_H + CARD_SPACE_Y;
 
       /* ---------------- Réclamation ---------------- */
       let ry = drawSectionTitle("Réclamation", PAGE_LEFT, afterBlocksY, TABLE_W);
