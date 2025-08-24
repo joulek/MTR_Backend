@@ -103,7 +103,7 @@ export function buildDevisCompressionPDF(devis = {}) {
   };
 
   /* ===== En-tête ===== */
-  const logoPath = tryImage(["assets/logo.png", "public/logo.png", "assets/img/logo.png"]);
+  const logoPath = tryImage(["assets/logo.png"]);
   const logoW = 120,
     logoHMax = 60;
   if (logoPath) doc.image(logoPath, LEFT, y - 8, { fit: [logoW, logoHMax] });

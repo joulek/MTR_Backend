@@ -1,54 +1,149 @@
 // utils/pdf.devisTraction.js
 import PDFDocument from "pdfkit";
 import dayjs from "dayjs";
+import fs from "fs";
+import path from "path";
 
-export function buildDevisTractionPDF(devis) {
-  const doc = new PDFDocument({ size: "A4", margin: 50 });
+/**
+ * PDF "Ressorts de Traction"
+ * - Logo en haut gauche
+ * - Titre sur 2 lignes centré
+ * - N° + Date à droite
+ * - Sections : Client → Schéma (1/2/3 images) → Spécifications principales
+ * - Exigences + Remarques : conditionnels, groupés
+ * - Spécifications : labels/valeurs sur 1 ligne (font-size auto)
+ * - Table jamais scindée : si elle ne tient pas, on la bascule en page suivante
+ */
+export function buildDevisTractionPDF(devis = {}) {
+  const doc = new PDFDocument({ size: "A4", margin: 40 });
 
-  /* ───────── Utils ───────── */
-  // get() robuste : ignore les valeurs objets → évite "[object Object]"
+  /* ===== Stream ===== */
+  const chunks = [];
+  doc.on("data", (c) => chunks.push(c));
+
+  /* ===== Styles & constantes ===== */
+  const PRIMARY = "#0B2A55";
+  const LIGHT   = "#F5F7FB";
+  const BORDER  = "#D5D9E4";
+  const TXT     = "#111";
+
+  const LEFT    = doc.page.margins.left;
+  const RIGHT   = doc.page.width - doc.page.margins.right;
+  const TOP     = doc.page.margins.top;
+  const BOTTOM  = doc.page.height - doc.page.margins.bottom;
+  const INNER_W = RIGHT - LEFT;
+
+  const SPRING_TYPE_LABEL = "Ressort de traction";
+
+  /* ===== Helpers ===== */
+  const safe = (v, dash = "—") =>
+    v === null || v === undefined || String(v).trim() === "" ? dash : String(v).trim();
+
+  const sanitize = (v) => safe(v).replace(/\s*\n+\s*/g, " "); // supprime les \n parasites
+
+  const hasText = (v) => v !== null && v !== undefined && String(v).trim() !== "";
+
   const get = (obj, paths = []) => {
     for (const p of paths) {
-      const v = p
-        .split(".")
-        .reduce((a, k) => (a && a[k] !== undefined ? a[k] : undefined), obj);
+      const v = p.split(".").reduce((a, k) => (a && a[k] !== undefined ? a[k] : undefined), obj);
       if (v === undefined || v === null) continue;
-      if (typeof v === "object") continue; // clé importante
+      if (typeof v === "object") continue; // évite [object Object]
       const s = String(v).trim();
       if (s) return s;
     }
     return "";
   };
-  const pretty = (v, dash = true) => {
-    const s = (v ?? "").toString().trim();
-    return s ? s : dash ? "-" : "";
+
+  const tryImage = (paths = []) => {
+    for (const p of paths) {
+      try {
+        const abs = path.resolve(process.cwd(), p);
+        if (fs.existsSync(abs)) return abs;
+      } catch {}
+    }
+    return null;
   };
-  const hasText = (v) => {
-    if (v === undefined || v === null) return false;
-    const s = String(v).trim();
-    return s.length > 0;
+
+  const fitOneLine = ({ text, x, y, width, bold = false, maxSize = 10.5, minSize = 8 }) => {
+    const fontName = bold ? "Helvetica-Bold" : "Helvetica";
+    let size = maxSize;
+    doc.font(fontName);
+    while (size > minSize) {
+      doc.fontSize(size);
+      const w = doc.widthOfString(text);
+      if (w <= width) break;
+      size -= 0.5;
+    }
+    doc.fontSize(size).text(text, x, y, { width, lineBreak: false, align: "left" });
+    return size;
   };
 
-  // PDF traction uniquement → on force le libellé du type
-  const SPRING_TYPE_LABEL = "Ressort de traction";
+  let y = TOP;
 
-  /* ───────── DATA ───────── */
-  const { _id, createdAt, user = {}, spec = {}, exigences, remarques } = devis || {};
+  const rule = (yy = y, color = BORDER) => {
+    doc.moveTo(LEFT, yy).lineTo(RIGHT, yy).strokeColor(color).lineWidth(1).stroke();
+  };
 
-  // Type de compte : tolère plusieurs variantes
-  const accountTypeRaw =
-    (get(user, ["accountType", "typeCompte", "type", "profil.type", "profile.type"]) || "")
-      .toString()
-      .toLowerCase();
+  const section = (label, yy = y, x = LEFT, w = INNER_W) => {
+    const h = 22;
+    doc
+      .save()
+      .fillColor(PRIMARY)
+      .rect(x, yy, w, h)
+      .fill()
+      .fillColor("#fff")
+      .font("Helvetica-Bold")
+      .fontSize(11)
+      .text(label, x + 10, yy + 4, { width: w - 20, align: "left" })
+      .restore();
+    return yy + h;
+  };
 
-  const accountType =
-    ["societe", "société", "company", "enterprise", "entreprise"].includes(accountTypeRaw)
-      ? "societe"
-      : ["personnel", "personal", "particulier"].includes(accountTypeRaw)
-      ? "personnel"
-      : "";
+  const ensureSpace = (needed) => {
+    if (y + needed > BOTTOM) {
+      doc.addPage();
+      y = TOP;
+    }
+  };
 
-  // Infos génériques
+  /* ===== En-tête ===== */
+  const logoPath = tryImage(["assets/logo.png"]);
+  const logoW = 110, logoHMax = 52;
+  if (logoPath) doc.image(logoPath, LEFT, y - 6, { fit: [logoW, logoHMax] });
+
+  doc
+    .fillColor(TXT)
+    .font("Helvetica-Bold")
+    .fontSize(17)
+    .text("Demande de devis", LEFT, y + 4, { width: INNER_W, align: "center" });
+
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(19)
+    .text("Ressorts de Traction", LEFT, y + 24, { width: INNER_W, align: "center" });
+
+  const metaTop = y + 24 + doc.heightOfString("Ressorts de Traction", { width: INNER_W }) + 6;
+  const numero = devis?.numero ? `N° : ${devis.numero}` : devis?._id ? `ID : ${devis._id}` : "";
+
+  doc
+    .font("Helvetica")
+    .fontSize(10)
+    .fillColor(TXT)
+    .text(numero, LEFT, metaTop, { width: INNER_W, align: "right" })
+    .text(
+      `Date : ${dayjs(devis?.createdAt || Date.now()).format("DD/MM/YYYY HH:mm")}`,
+      LEFT,
+      metaTop + 14,
+      { width: INNER_W, align: "right" }
+    );
+
+  rule(metaTop + 24);
+  y = metaTop + 34;
+
+  /* ===== 1) Client ===== */
+  y = section("Client", y);
+
+  const user = devis?.user || {};
   const client = {
     nom: get(user, ["nom", "lastName", "name.last", "fullname"]),
     prenom: get(user, ["prenom", "firstName", "name.first"]),
@@ -57,277 +152,173 @@ export function buildDevisTractionPDF(devis) {
     adresse: get(user, ["adresse", "address", "location.address"]),
   };
 
-  // ── Personnel (corrigé)
-  const perso = {
-    cin: get(user, ["cin", "CIN", "personal.cin", "personnel.cin"]),
-    poste: get(user, [
-      "personal.posteActuel",
-      "personnel.posteActuel",
-      "posteActuel", // au root si présent
-      "personal.poste", // anciens champs
-      "personnel.poste",
-      "fonction",
-      "role",
-    ]),
-  };
+  const clientPairs = [];
+  clientPairs.push(["Nom", sanitize([client.prenom, client.nom].filter(Boolean).join(" "))]);
+  clientPairs.push(["Email", sanitize(client.email)]);
+  clientPairs.push(["Tél.", sanitize(client.tel)]);
+  clientPairs.push(["Adresse", sanitize(client.adresse)]);
 
-  // ── Société — chemins précis (pas de "company" nu)
-  const soc = {
-    nom: get(user, [
-      "nomSociete",
-      "company.nomSociete",
-      "societe.nomSociete",
-      "company.name",
-      "entreprise.nom",
-      "societyName",
-      "company.raisonSociale",
-    ]),
-    matricule: get(user, [
-      "matriculeFiscal",
-      "company.matriculeFiscal",
-      "societe.matriculeFiscal",
-      "mf",
-      "MF",
-      "taxId",
-      "fiscalId",
-    ]),
-    poste: get(user, [
-      "company.posteActuel",
-      "societe.posteActuel",
-      "posteActuel",
-      "fonction",
-      "role",
-    ]),
-  };
+  const rowHClient = 18, labelW = 105;
+  const clientBoxH = rowHClient * clientPairs.length + 8;
+  ensureSpace(clientBoxH + 12);
+  doc.rect(LEFT, y, INNER_W, clientBoxH).strokeColor(BORDER).stroke();
 
-  /* ───────── STREAM BUFFER ───────── */
-  const chunks = [];
-  doc.on("data", (c) => chunks.push(c));
-  const done = new Promise((resolve) => doc.on("end", () => resolve(Buffer.concat(chunks))));
-
-  /* ───────── STYLES ───────── */
-  const C_PRIMARY = "#0b2a4a";
-  const C_TEXT = "#111111";
-  const C_MUTED = "#6b7280";
-  const C_LINE = "#e5e7eb";
-
-  const LEFT = doc.page.margins.left;
-  const RIGHT = doc.page.width - doc.page.margins.right;
-  const PAGEW = RIGHT - LEFT;
-
-  /* ───────── ENTÊTE ───────── */
-  const titleY = 24;
-
-  doc
-    .fillColor(C_TEXT)
-    .font("Helvetica-Bold")
-    .fontSize(19)
-    .text("Demande de devis — Ressort de traction", LEFT, titleY, {
-      align: "left",
-      width: PAGEW,
+  let cy = y + 6;
+  clientPairs.forEach(([k, v]) => {
+    fitOneLine({ text: k, x: LEFT + 8, y: cy, width: labelW, bold: true, maxSize: 10, minSize: 8 });
+    fitOneLine({
+      text: v,
+      x: LEFT + 8 + labelW + 6,
+      y: cy,
+      width: INNER_W - (labelW + 26),
+      bold: false,
+      maxSize: 10,
+      minSize: 8,
     });
+    cy += rowHClient;
+  });
+  y += clientBoxH + 14;
 
-  const providedNumber = devis?.numero || devis?.reference || devis?.code;
-  doc
-    .font("Helvetica")
-    .fontSize(10.5)
-    .fillColor(C_MUTED)
-    .text(
-      `${formatDevisNumber(_id, createdAt, providedNumber)}  ·  ${
-        createdAt ? dayjs(createdAt).format("DD/MM/YYYY HH:mm") : "-"
-      }`,
-      LEFT,
-      titleY + 24,
-      { width: PAGEW, align: "left" }
-    );
+  /* ===== 2) Schéma (2 en haut + 1 centrée en bas si 3 images) ===== */
+  const imgPaths = [
+    tryImage(["assets/traction00.png", "/mnt/data/traction00.png"]),
+    tryImage(["assets/traction01.png", "/mnt/data/traction01.png"]),
+    tryImage(["assets/traction02.png", "/mnt/data/traction02.png"]),
+  ].filter(Boolean);
 
-  const lineY = titleY + 50;
-  drawLine(doc, LEFT, RIGHT, lineY, C_PRIMARY, 1.6);
-  doc.y = lineY + 18;
+  if (imgPaths.length) {
+    y = section("Schéma", y);
 
-  /* ───────── INFORMATIONS CLIENT ───────── */
-  sectionTitle(doc, "Informations client", C_PRIMARY, LEFT, PAGEW);
+    const GAP = 12;              // espace horizontal
+    const H_TOP = 120;           // hauteur image rangée du haut
+    const H_BOTTOM = 120;        // hauteur image rangée du bas (si 3 images)
 
-  const infoItems = [
-    {
-      label: "Type de compte",
-      value: accountType ? (accountType === "societe" ? "Société" : "Personnel") : "-",
-    },
-    { label: "Nom", value: pretty(`${client.prenom} ${client.nom}`.trim()) },
-    { label: "Email", value: pretty(client.email) },
-    { label: "Téléphone", value: pretty(client.tel) },
-    { label: "Adresse", value: pretty(client.adresse) },
+    if (imgPaths.length === 1) {
+      const w = Math.min(INNER_W, 380);
+      ensureSpace(H_TOP + 26);
+      const x = LEFT + (INNER_W - w) / 2;
+      doc.image(imgPaths[0], x, y + 8, { fit: [w, H_TOP], align: "center", valign: "center" });
+      y += H_TOP + 18;
+    } else if (imgPaths.length === 2) {
+      const colW = Math.floor((INNER_W - GAP) / 2);
+      ensureSpace(H_TOP + 26);
+      doc.image(imgPaths[0], LEFT, y + 8, { fit: [colW, H_TOP], align: "center", valign: "center" });
+      doc.image(imgPaths[1], LEFT + colW + GAP, y + 8, { fit: [colW, H_TOP], align: "center", valign: "center" });
+      y += H_TOP + 18;
+    } else {
+      // 3 images → 2 colonnes en haut + 1 centrée dessous
+      const colW = Math.floor((INNER_W - GAP) / 2);
+      const bottomW = Math.min(Math.floor(INNER_W * 0.55), 320);
+      ensureSpace(H_TOP + H_BOTTOM + 36);
+
+      // ligne du haut
+      doc.image(imgPaths[0], LEFT, y + 8, { fit: [colW, H_TOP], align: "center", valign: "center" });
+      doc.image(imgPaths[1], LEFT + colW + GAP, y + 8, { fit: [colW, H_TOP], align: "center", valign: "center" });
+
+      // ligne du bas
+      const bx = LEFT + (INNER_W - bottomW) / 2;
+      doc.image(imgPaths[2], bx, y + 8 + H_TOP + 12, { fit: [bottomW, H_BOTTOM], align: "center", valign: "center" });
+
+      y += H_TOP + H_BOTTOM + 18;
+    }
+  }
+
+  /* ===== 3) Spécifications principales ===== */
+  // On calcule la hauteur totale; si elle ne tient pas → nouvelle page AVANT d'imprimer
+  const s = devis?.spec || {};
+  const rows = [
+    ["Diamètre du fil (d)", sanitize(s.d), "Diamètre extérieur (De)", sanitize(s.De || s.DE)],
+    ["Longueur libre (Lo)", sanitize(s.Lo), "Nombre total de spires", sanitize(s.nbSires || s.nbSpires)],
+    ["Quantité", sanitize(s.quantite ?? devis?.quantite), "Matière", sanitize(s.matiere)],
+    ["Sens d’enroulement", sanitize(s.enroulement), "Position des anneaux", sanitize(s.positionAnneaux)],
+    ["Type d’accrochage", sanitize(s.typeAccrochage), "Type de ressort", SPRING_TYPE_LABEL],
   ];
 
-  if (accountType === "societe") {
-    infoItems.push(
-      { label: "Nom de la société", value: pretty(soc.nom) },
-      { label: "Matricule fiscal", value: pretty(soc.matricule) },
-      { label: "Poste actuel", value: pretty(soc.poste) }
-    );
-  } else if (accountType === "personnel") {
-    infoItems.push(
-      { label: "CIN", value: pretty(perso.cin) },
-      { label: "Poste actuel", value: pretty(perso.poste) }
-    );
-  } else {
-    // fallback si accountType absent/incorrect
-    if (soc.nom) infoItems.push({ label: "Nom de la société", value: pretty(soc.nom) });
-    if (soc.matricule) infoItems.push({ label: "Matricule fiscal", value: pretty(soc.matricule) });
-    if (soc.poste) infoItems.push({ label: "Poste actuel", value: pretty(soc.poste) });
-    if (perso.cin) infoItems.push({ label: "CIN", value: pretty(perso.cin) });
-    if (perso.poste) infoItems.push({ label: "Poste actuel", value: pretty(perso.poste) });
+  const rowH = 28;                 // un peu plus compact
+  const halfW = Math.floor(INNER_W / 2);
+  const padX = 6;
+  const labLW = 170;               // label col gauche
+  const labRW = 185;               // label col droite
+  const valLW = halfW - (labLW + padX * 3);
+  const valRW = halfW - (labRW + padX * 3);
+
+  const tableH = rowH * rows.length;
+
+  // ---- si la table ne tient pas sur la page courante → on bascule en page suivante
+  if (y + 22 + tableH + 10 > BOTTOM) {
+    doc.addPage();
+    y = TOP;
   }
 
-  drawTwoColGrid(doc, infoItems, { LEFT, RIGHT, C_LINE, C_TEXT, C_MUTED });
+  y = section("Spécifications principales", y);
 
-  /* ───────── SPÉCIFICATIONS ───────── */
-  sectionTitle(doc, "Spécifications", C_PRIMARY, LEFT, PAGEW);
-  drawTwoColGrid(
-    doc,
-    [
-      { label: "Diamètre du fil (d)", value: pretty(spec.d) },
-      { label: "Diamètre extérieur (De)", value: pretty(spec.De) },
-      { label: "Longueur libre (Lo)", value: pretty(spec.Lo) },
-      { label: "Nombre total de spires", value: pretty(spec.nbSires || spec.nbSpires) },
-      { label: "Quantité", value: pretty(spec.quantite) },
-      { label: "Matière", value: pretty(spec.matiere) },
-      { label: "Sens d'enroulement", value: pretty(spec.enroulement) },
-      { label: "Position des anneaux", value: pretty(spec.positionAnneaux) },
-      { label: "Type d'accrochage", value: pretty(spec.typeAccrochage) },
-      // Traction uniquement → on force le libellé
-      { label: "Type de ressort", value: SPRING_TYPE_LABEL },
-    ],
-    { LEFT, RIGHT, C_LINE, C_TEXT, C_MUTED }
-  );
+  const tableTop = y;
+  doc.rect(LEFT, tableTop, INNER_W, tableH).strokeColor(BORDER).lineWidth(1).stroke();
 
-  /* ───────── EXIGENCES & REMARQUES ───────── */
-  // N'AFFICHE PAS si vide
-  if (hasText(exigences)) {
-    sectionTitle(doc, "Exigences particulières", C_PRIMARY, LEFT, PAGEW);
-    drawParagraph(doc, exigences, { LEFT, RIGHT, C_TEXT, placeholder: "" });
+  rows.forEach((r, i) => {
+    const yy = tableTop + i * rowH;
+    if (i % 2 === 0) doc.save().fillColor(LIGHT).rect(LEFT, yy, INNER_W, rowH).fill().restore();
+
+    // lignes
+    doc.moveTo(LEFT, yy).lineTo(RIGHT, yy).strokeColor(BORDER).stroke();
+    doc.moveTo(LEFT + halfW, yy).lineTo(LEFT + halfW, yy + rowH).strokeColor(BORDER).stroke();
+
+    // Gauche
+    fitOneLine({ text: r[0], x: LEFT + padX, y: yy + 6, width: labLW, bold: true, maxSize: 10.5, minSize: 8 });
+    fitOneLine({ text: r[1], x: LEFT + padX + labLW + padX, y: yy + 6, width: valLW, maxSize: 10.5, minSize: 7.5 });
+
+    // Droite
+    fitOneLine({ text: r[2], x: LEFT + halfW + padX, y: yy + 6, width: labRW, bold: true, maxSize: 10.5, minSize: 8 });
+    fitOneLine({ text: r[3], x: LEFT + halfW + padX + labRW + padX, y: yy + 6, width: valRW, maxSize: 10.5, minSize: 7.5 });
+  });
+
+  doc.moveTo(LEFT, tableTop + tableH).lineTo(RIGHT, tableTop + tableH).strokeColor(BORDER).stroke();
+  y = tableTop + tableH + 12;
+
+  /* ===== 4) Exigences + Remarques ===== */
+  const blocks = [];
+  if (hasText(devis?.exigences)) {
+    const text = sanitize(devis.exigences);
+    doc.font("Helvetica").fontSize(10);
+    const h = Math.max(56, doc.heightOfString(text, { width: INNER_W - 20 }) + 14);
+    blocks.push({ title: "Exigences particulières", text, h });
+  }
+  if (hasText(devis?.remarques)) {
+    const text = sanitize(devis.remarques);
+    doc.font("Helvetica").fontSize(10);
+    const h = Math.max(56, doc.heightOfString(text, { width: INNER_W - 20 }) + 14);
+    blocks.push({ title: "Autres remarques", text, h });
   }
 
-  if (hasText(remarques)) {
-    sectionTitle(doc, "Autres remarques", C_PRIMARY, LEFT, PAGEW);
-    drawParagraph(doc, remarques, { LEFT, RIGHT, C_TEXT, placeholder: "" });
+  if (blocks.length) {
+    const totalNeeded = blocks.reduce((sum, b) => sum + 22 + b.h + 10, 0);
+    ensureSpace(totalNeeded);
+    for (const b of blocks) {
+      y = section(b.title, y);
+      doc.save().fillColor("#fff").rect(LEFT, y, INNER_W, b.h).fill().restore();
+      doc.rect(LEFT, y, INNER_W, b.h).strokeColor(BORDER).stroke();
+      doc.font("Helvetica").fontSize(10).fillColor(TXT).text(b.text, LEFT + 10, y + 8, {
+        width: INNER_W - 20,
+      });
+      y += b.h + 10;
+    }
   }
 
-  /* ───────── FOOTER ───────── */
-  doc.moveDown(1.5);
-  drawLine(doc, LEFT, RIGHT, doc.y, C_LINE, 1);
+  /* ===== Pied ===== */
+  if (y + 48 > BOTTOM) {
+    doc.addPage();
+    y = TOP;
+  }
+  rule(BOTTOM - 54);
   doc
     .font("Helvetica")
-    .fontSize(9)
-    .fillColor(C_MUTED)
-    .text("Document généré automatiquement — MTR", LEFT, doc.y + 6, {
+    .fontSize(8)
+    .fillColor("#666")
+    .text("Document généré automatiquement — MTR Industry", LEFT, BOTTOM - 46, {
+      width: INNER_W,
       align: "center",
-      width: PAGEW,
     });
 
   doc.end();
-  return done;
-}
-
-/* ───────────────────── UI HELPERS ───────────────────── */
-function sectionTitle(doc, text, color, LEFT, PAGEW) {
-  doc.moveDown(0.4);
-  doc
-    .font("Helvetica-Bold")
-    .fontSize(13)
-    .fillColor(color)
-    .text(text, LEFT, doc.y, { width: PAGEW, align: "left" });
-  drawLine(doc, LEFT, LEFT + PAGEW, doc.y + 2, "#e5e7eb", 1);
-  doc.y += 10;
-}
-
-function drawTwoColGrid(doc, items, { LEFT, RIGHT, C_LINE, C_TEXT, C_MUTED }) {
-  const colGap = 28;
-  const colWidth = Math.floor((RIGHT - LEFT - colGap) / 2);
-  const minRowH = 28;
-
-  const rows = [];
-  for (let i = 0; i < items.length; i += 2)
-    rows.push([items[i], items[i + 1] || { label: "", value: "" }]);
-
-  rows.forEach(([a, b]) => {
-    const yStart = doc.y;
-
-    const hA = measureCellHeight(doc, a, colWidth);
-    const hB = measureCellHeight(doc, b, colWidth);
-    const rowH = Math.max(minRowH, hA, hB);
-
-    renderCell(doc, LEFT, colWidth, yStart, rowH, a, { C_TEXT, C_MUTED });
-    renderCell(doc, LEFT + colWidth + colGap, colWidth, yStart, rowH, b, { C_TEXT, C_MUTED });
-
-    drawLine(doc, LEFT, RIGHT, yStart + rowH + 4, C_LINE, 0.8);
-    doc.y = yStart + rowH + 10;
-  });
-}
-
-function measureCellHeight(doc, { label = "", value = "" } = {}, width) {
-  const save = {
-    x: doc.x,
-    y: doc.y,
-    font: doc._font,
-    size: doc._fontSize,
-    fill: doc._fillColor,
-  };
-  const hLabel = doc.font("Helvetica").fontSize(9).heightOfString(label || "", { width });
-  const hValue = doc.font("Helvetica-Bold").fontSize(11).heightOfString(String(value || ""), { width });
-  doc.x = save.x;
-  doc.y = save.y;
-  doc._font = save.font;
-  doc._fontSize = save.size;
-  doc._fillColor = save.fill;
-  return hLabel + hValue + 8;
-}
-
-function renderCell(doc, x, w, y, h, { label = "", value = "" } = {}, { C_TEXT, C_MUTED }) {
-  const pad = 2;
-  doc.font("Helvetica").fontSize(9).fillColor(C_MUTED).text(label, x, y + pad, { width: w, align: "left" });
-  const afterLabelY = doc.y;
-  doc
-    .font("Helvetica-Bold")
-    .fontSize(11)
-    .fillColor(C_TEXT)
-    .text(String(value || ""), x, afterLabelY, { width: w, align: "left" });
-  doc.y = y + h; // fixe la hauteur
-}
-
-function drawParagraph(doc, text, { LEFT, RIGHT, C_TEXT, placeholder = "-" }) {
-  const value = text && String(text).trim() ? String(text) : placeholder;
-  doc.font("Helvetica").fontSize(10.5).fillColor(C_TEXT).text(value, LEFT, doc.y, {
-    width: RIGHT - LEFT,
-    align: "left",
-  });
-}
-
-function drawLine(doc, x1, x2, y, color, w = 1) {
-  doc.save().moveTo(x1, y).lineTo(x2, y).lineWidth(w).strokeColor(color).stroke().restore();
-}
-
-/* ───────────────────── DATA HELPERS ───────────────────── */
-// Retourne un numéro au format DDVYY#####
-function formatDevisNumber(id, createdAt, provided) {
-  if (provided) {
-    const s = String(provided);
-    if (/^DDV\d{7}$/.test(s)) return s;
-    const digits = s.replace(/\D/g, "");
-    if (digits.length >= 7) return `DDV${digits.slice(-7)}`;
-    const yy = dayjs(createdAt || Date.now()).format("YY");
-    const serial = digits.padStart(5, "0").slice(-5);
-    return `DDV${yy}${serial}`;
-  }
-
-  const yy = dayjs(createdAt || Date.now()).format("YY");
-  let digitsFromId = String(id || "").replace(/\D/g, "");
-  if (digitsFromId.length >= 5) digitsFromId = digitsFromId.slice(-5);
-  else {
-    const src = String(id || "");
-    let h = 0;
-    for (let i = 0; i < src.length; i++) h = (h * 33 + src.charCodeAt(i)) >>> 0;
-    digitsFromId = String(h % 100000).padStart(5, "0");
-  }
-  return `DDV${yy}${digitsFromId}`;
+  return new Promise((resolve) => doc.on("end", () => resolve(Buffer.concat(chunks))));
 }
