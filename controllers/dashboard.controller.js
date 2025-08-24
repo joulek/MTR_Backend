@@ -2,7 +2,7 @@
 import mongoose from "mongoose";
 import User from "../models/User.js"; // doit contenir createdAt
 import Commande from "../models/ClientOrder.js"; // doit contenir createdAt, client, total
-import Reclamation from "../models/Reclamation.js"; // doit contenir createdAt
+import Reclamation from "../models/reclamation.js"; // doit contenir createdAt
 
 function parseRange(q) {
   const now = new Date();
