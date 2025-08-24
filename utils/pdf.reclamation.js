@@ -1,52 +1,153 @@
 // utils/pdf.reclamation.js
 import PDFDocument from "pdfkit";
+import path from "path";
+import dayjs from "dayjs";
 
 export async function buildReclamationPDF(rec) {
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ margin: 48 });
+      const doc = new PDFDocument({ size: "A4", margin: 40 });
       const chunks = [];
       doc.on("data", (c) => chunks.push(c));
       doc.on("end", () => resolve(Buffer.concat(chunks)));
 
-      const title = "Réclamation client";
+      /* ---------------- Styles & Layout ---------------- */
+      const NAVY   = "#003366";
+      const LIGHT  = "#F3F3F8";
+      const BORDER = "#C8C8D8";
+
+      const PAGE_LEFT  = 40;
+      const TABLE_W    = 515;
+      const PAGE_RIGHT = PAGE_LEFT + TABLE_W;
+
+      const GUTTER_X     = 28;   // espace horizontal entre Client & Commande
+      const CARD_SPACE_Y = 28;   // espace vertical entre cartes
+
+      const safe = (s = "") => String(s || "—");
+      const dateStr = dayjs(rec?.createdAt || Date.now()).format("DD/MM/YYYY HH:mm:ss");
+
       const u = rec?.user || {};
       const c = rec?.commande || {};
 
-      doc.fontSize(18).text(title, { align: "center" }).moveDown(1);
+      const drawSectionTitle = (label, x, y, w) => {
+        doc.save()
+          .fillColor(NAVY)
+          .rect(x, y, w, 20)
+          .fill()
+          .fillColor("#FFFFFF")
+          .font("Helvetica-Bold").fontSize(11)
+          .text(label, x + 10, y + 4, { width: w - 20, align: "left" })
+          .restore();
+        return y + 20;
+      };
 
-      doc.fontSize(12).text(`Réf: ${rec?._id}`);
-      doc.text(`Date: ${new Date(rec?.createdAt || Date.now()).toLocaleString()}`).moveDown();
+      const drawKeyValue = (pairs, x, y, w, lineH = 18, labelW = 95) => {
+        doc.fontSize(10).fillColor("#000");
+        pairs.forEach(([label, value]) => {
+          doc.font("Helvetica-Bold").text(label, x, y, { width: labelW, align: "left" });
+          doc.font("Helvetica").text(value, x + labelW, y, { width: w - labelW, align: "left" });
+          y += lineH;
+        });
+        return y;
+      };
 
-      doc.fontSize(14).text("Client", { underline:true });
-      doc.fontSize(12)
-        .text(`Nom     : ${(u.prenom || "") + " " + (u.nom || "")}`.trim())
-        .text(`Email   : ${u.email || "-"}`)
-        .text(`Tél     : ${u.numTel || "-"}`)
-        .text(`Adresse : ${u.adresse || "-"}`)
-        .moveDown();
+      /* ---------------- En-tête ---------------- */
+      const topY = PAGE_LEFT;
 
-      doc.fontSize(14).text("Commande", { underline:true });
-      doc.fontSize(12)
-        .text(`Type doc : ${c.typeDoc || "-"}`)
-        .text(`Numéro    : ${c.numero || "-"}`)
-        .text(`Date livr.: ${c.dateLivraison ? new Date(c.dateLivraison).toLocaleDateString() : "-"}`)
-        .text(`Réf prod. : ${c.referenceProduit || "-"}`)
-        .text(`Quantité  : ${c.quantite ?? "-"}`)
-        .moveDown();
+      // Logo
+      try {
+        const logoPath = path.resolve(process.cwd(), "assets/logo.png");
+        doc.image(logoPath, PAGE_LEFT, topY - 10, { width: 90, height: 90, fit: [90, 90] });
+      } catch {}
 
-      doc.fontSize(14).text("Réclamation", { underline:true });
-      doc.fontSize(12)
-        .text(`Nature  : ${rec?.nature || "-"}`)
-        .text(`Attente : ${rec?.attente || "-"}`)
-        .moveDown();
+      // Titre centré
+      doc.font("Helvetica-Bold").fontSize(18).fillColor("#000")
+        .text("Réclamation client", 0, topY + 6, { align: "center" });
 
+      // Réf & Date descendus sous le titre
+      const metaX = PAGE_RIGHT - 220;
+      const metaY = topY + 42;
+      doc.font("Helvetica").fontSize(10).fillColor("#000")
+        .text("Réf :", metaX, metaY)
+        .font("Helvetica-Bold").text(safe(rec?._id), metaX + 30, metaY)
+        .font("Helvetica").text("Date :", metaX, metaY + 16)
+        .font("Helvetica-Bold").text(dateStr, metaX + 30, metaY + 16);
+
+      /* ---------------- Client & Commande ---------------- */
+      const blockTop = topY + 90;
+      const colW = (TABLE_W - GUTTER_X) / 2;
+
+      const CLIENT_H = 120;
+      const CMD_H    = 140;
+
+      // Client
+      const clientTitleBottom = drawSectionTitle("Client", PAGE_LEFT, blockTop, colW);
+      const clientRectY = clientTitleBottom;
+      doc.rect(PAGE_LEFT, clientRectY, colW, CLIENT_H).strokeColor(BORDER).stroke();
+      drawKeyValue(
+        [
+          ["Nom", `${safe(u.prenom)} ${safe(u.nom)}`.trim()],
+          ["Email", safe(u.email)],
+          ["Tél", safe(u.numTel)],
+          ["Adresse", safe(u.adresse)],
+        ],
+        PAGE_LEFT + 10,
+        clientRectY + 8,
+        colW - 20
+      );
+
+      // Commande
+      const cmdX = PAGE_LEFT + colW + GUTTER_X;
+      const cmdTitleBottom = drawSectionTitle("Commande", cmdX, blockTop, colW);
+      const cmdRectY = cmdTitleBottom;
+      doc.rect(cmdX, cmdRectY, colW, CMD_H).strokeColor(BORDER).stroke();
+      drawKeyValue(
+        [
+          ["Type doc",  safe(c.typeDoc)],
+          ["Numéro",    safe(c.numero)],
+          ["Date livr.", c.dateLivraison ? dayjs(c.dateLivraison).format("DD/MM/YYYY") : "—"],
+          ["Réf prod.", safe(c.referenceProduit)],
+          ["Quantité",  String(c.quantite ?? "—")],
+        ],
+        cmdX + 10,
+        cmdRectY + 8,
+        colW - 20
+      );
+
+      // Position suivante = bas des deux cartes + espacement vertical
+      const afterBlocksY = Math.max(clientRectY + CLIENT_H, cmdRectY + CMD_H) + CARD_SPACE_Y;
+
+      /* ---------------- Réclamation ---------------- */
+      let ry = drawSectionTitle("Réclamation", PAGE_LEFT, afterBlocksY, TABLE_W);
+      doc.save().rect(PAGE_LEFT, ry, TABLE_W, 56).fill(LIGHT).restore();
+      doc.rect(PAGE_LEFT, ry, TABLE_W, 56).strokeColor(BORDER).stroke();
+      ry = drawKeyValue(
+        [
+          ["Nature",  safe(rec?.nature)],
+          ["Attente", safe(rec?.attente)],
+        ],
+        PAGE_LEFT + 10,
+        ry + 8,
+        TABLE_W - 20
+      );
+
+      /* ---------------- Description (optionnelle) ---------------- */
       if (rec?.description) {
-        doc.fontSize(14).text("Description", { underline:true });
-        doc.fontSize(12).text(rec.description).moveDown();
+        let dy = drawSectionTitle("Description", PAGE_LEFT, ry + CARD_SPACE_Y, TABLE_W);
+        const textH = doc.heightOfString(String(rec.description), { width: TABLE_W - 20 });
+        const boxH = Math.max(60, textH + 16);
+        doc.save().rect(PAGE_LEFT, dy, TABLE_W, boxH).fill("#FFFFFF").restore();
+        doc.rect(PAGE_LEFT, dy, TABLE_W, boxH).strokeColor(BORDER).stroke();
+        doc.font("Helvetica").fontSize(10).fillColor("#000")
+          .text(String(rec.description), PAGE_LEFT + 10, dy + 8, {
+            width: TABLE_W - 20,
+            align: "left",
+          });
       }
 
       doc.end();
-    } catch (e) { reject(e); }
+    } catch (e) {
+      reject(e);
+    }
   });
 }
