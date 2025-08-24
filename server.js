@@ -36,7 +36,7 @@ const app = express();
 
 /* ---------- Middlewares GLOBAUX (dans le bon ordre) ---------- */
 app.use(cors({
-  origin: "https://mtr-frontend.onrender.com",
+  origin: "https://mtr-frontend-n4b0.onrender.com",
   credentials: true,
   methods: ["GET","POST","PUT","DELETE","OPTIONS"],
   allowedHeaders: ["Content-Type","Authorization"]
