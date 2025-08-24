@@ -3,6 +3,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
+import auth from "../middleware/auth.js"; // middleware d'authentification
 import { clearAuthCookies } from "../controllers/authController.js";
 import { checkEmailExists } from "../controllers/authController.js";
 
@@ -10,6 +11,9 @@ import { checkEmailExists } from "../controllers/authController.js";
 const router = Router();
 
 /** POST /api/auth/login : pose les cookies HTTP-only */
+router.get("/whoami", auth, (req, res) => {
+  res.json({ id: req.user.id, role: req.user.role });
+});
 router.post("/login", async (req, res) => {
   try {
     const { email, password, rememberMe } = req.body; // ← NEW

@@ -27,6 +27,7 @@ import mesDemandesDevisRoutes from "./routes/mesDemandesDevis.js";
 import devisRoutes from "./routes/devis.routes.js";
 import clientOrderRoutes from "./routes/client.order.routes.js";
 import contactRoutes from "./routes/contact.routes.js";
+import dashboardRoutes from "./routes/dashboard.routes.js";
 dotenv.config();
 
 
@@ -93,6 +94,7 @@ app.use("/api/admin/users", userRoutes);
 app.use("/api", mesDemandesDevisRoutes);
 app.use("/api/order", clientOrderRoutes);
 app.use("/api/contact", contactRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 // 404
 app.use((req, res) => res.status(404).json({ error: "Route not found" }));
 
