@@ -96,7 +96,7 @@ export const inviteUser = async (req, res) => {
     user.passwordReset = { codeHash, expiresAt, usedAt: null, attempts: 0, lastSentAt: new Date() };
     await user.save();
 
-    const appUrl = process.env.APP_FRONT_URL || "http://localhost:3000";
+    const appUrl = process.env.APP_FRONT_URL || "https://mtr-frontend.onrender.com";
     const locale = "fr";
     const setPwdLink = `${appUrl}/${locale}/set-password?uid=${user._id}&token=${rawToken}`;
 
