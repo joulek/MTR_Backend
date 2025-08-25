@@ -23,7 +23,7 @@ import { makeTransport } from "../utils/mailer.js";
 
 // 👉 BASE publique du backend (mets PUBLIC_BACKEND_URL en .env en prod)
 const ORIGIN =
-  process.env.PUBLIC_BACKEND_URL || `http://localhost:${process.env.PORT || 4000}`;
+  process.env.PUBLIC_BACKEND_URL ;
 
 const toNum = (v) => Number(String(v ?? "").replace(",", "."));
 

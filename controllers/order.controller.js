@@ -16,7 +16,7 @@ import User from "../models/User.js";               // <— pour compléter emai
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const ORIGIN = process.env.PUBLIC_BACKEND_URL || `http://localhost:${process.env.PORT || 4000}`;
+const ORIGIN = process.env.PUBLIC_BACKEND_URL ;
 
 const DEMANDE_MODELS = [
   { type: "autre",       Model: DemandeAutre },
