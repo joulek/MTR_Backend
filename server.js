@@ -29,7 +29,6 @@ import devisRoutes from "./routes/devis.routes.js";
 import clientOrderRoutes from "./routes/client.order.routes.js";
 import contactRoutes from "./routes/contact.routes.js";
 import dashboardRoutes from "./routes/dashboard.routes.js";
-import auth from "./middleware/auth.js";
 
 dotenv.config();
 
