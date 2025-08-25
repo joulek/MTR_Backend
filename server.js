@@ -97,7 +97,7 @@ app.use("/api/articles", ArticleRoutes);
 
 // Authentification
 app.use("/api/auth", authRegisterRoutes);  // inscription
-app.use("/api/auth", authLoginRoutes);     // login / logout
+app.use("/api/auth", auth);     // login / logout
 app.use("/api/auth", authRoutes);          // autres endpoints si définis
 app.use("/api/users", userRoutes);         // profil / me / admin users
 app.use("/api/admin/users", userRoutes);   // si tu exposes aussi côté /admin
