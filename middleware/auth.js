@@ -2,29 +2,20 @@
 import jwt from "jsonwebtoken";
 
 export default function auth(req, res, next) {
-  // 1) خذ التوكن من Authorization أو من الكوكي
-  let token = null;
-  const authHeader = req.headers.authorization || "";
-  if (authHeader.startsWith("Bearer ")) {
-    token = authHeader.slice(7);
-  } else if (req.cookies?.token) {
-    token = req.cookies.token;
-  }
+  const token =
+    req.cookies?.token ||                      // 👈 même nom que dans res.cookie(...)
+    (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
 
-  if (!token) return res.status(401).json({ error: "Token manquant" });
+  if (!token) return res.status(401).json({ message: "Non authentifié" });
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const userId = decoded.sub || decoded.id || decoded._id || decoded.userId;
-    if (!userId) return res.status(401).json({ error: "ID utilisateur manquant dans le token" });
-
-    req.user = { id: userId, role: decoded.role };
-    return next();
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = { id: payload.id, role: payload.role };
+    next();
   } catch {
-    return res.status(401).json({ error: "Token invalide ou expiré" });
+    return res.status(401).json({ message: "Session expirée" });
   }
 }
-
 export function only(...roles) {
   return (req, res, next) => {
     if (!req.user?.role) return res.status(401).json({ error: "Non authentifié" });
