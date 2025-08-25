@@ -10,7 +10,7 @@ import multer from "multer";
 
 // ------- Routes -------
 import authRegisterRoutes from "./routes/auth.routes.js";     // register-client / register-admin
-import auth from "./routes/auth.js";               // login / logout (cookies HTTP-only)
+import authLoginRoutes from "./routes/auth.js";               // login / logout (cookies HTTP-only)
 import authRoutes from "./routes/auth.routes.js";             // autres endpoints d'auth si présents
 import userRoutes from "./routes/user.routes.js";
 import devisTractionRoutes from "./routes/devisTraction.routes.js";
@@ -97,8 +97,7 @@ app.use("/api/articles", ArticleRoutes);
 
 // Authentification
 app.use("/api/auth", authRegisterRoutes);  // inscription
-app.use("/api/auth", auth);     // login / logout
-app.use("/api/auth", authRoutes);          // autres endpoints si définis
+app.use("/api/auth", authLoginRoutes);      // ✅ login/logout       // autres endpoints si définis
 app.use("/api/users", userRoutes);         // profil / me / admin users
 app.use("/api/admin/users", userRoutes);   // si tu exposes aussi côté /admin
 
