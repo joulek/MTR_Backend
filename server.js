@@ -10,7 +10,7 @@ import multer from "multer";
 
 // ------- Routes -------
 import authRegisterRoutes from "./routes/auth.routes.js";     // register-client / register-admin
-import authLoginRoutes from "./routes/auth.js";               // login / logout (cookies HTTP-only)
+import auth from "./routes/auth.js";               // login / logout (cookies HTTP-only)
 import authRoutes from "./routes/auth.routes.js";             // autres endpoints d'auth si présents
 import userRoutes from "./routes/user.routes.js";
 import devisTractionRoutes from "./routes/devisTraction.routes.js";
