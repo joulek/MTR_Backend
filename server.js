@@ -7,14 +7,12 @@ import cookieParser from "cookie-parser";
 import path from "path";
 import fs from "fs";
 import multer from "multer";
-
+import auth from "./middleware/auth.js";
 // ------- Routes -------
 import authRegisterRoutes from "./routes/auth.routes.js";     // register-client / register-admin
-import authLoginRoutes from "./routes/auth.js";               // login / logout (cookies HTTP-only)
-import authRoutes from "./routes/auth.routes.js";             // autres endpoints d'auth si présents
+import authLoginRoutes from "./routes/auth.js";               // login / logout (cookies HTTP-only)           // autres endpoints d'auth si présents
 import userRoutes from "./routes/user.routes.js";
 import devisTractionRoutes from "./routes/devisTraction.routes.js";
-import adminDevisRoutes from "./routes/admin.devis.routes.js";
 import devisTorsionRoutes from "./routes/devisTorsion.routes.js";
 import devisCompressionRoutes from "./routes/devisCompression.routes.js";
 import devisGrilleRoutes from "./routes/devisGrille.routes.js";
